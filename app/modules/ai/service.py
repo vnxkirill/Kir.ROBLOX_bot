@@ -19,8 +19,13 @@ class AIService:
 
     async def ask(self, question: str) -> ChatResponse:
         """Одиночный вопрос без истории диалога."""
+        return await self.chat(question, history=[])
+
+    async def chat(self, question: str, history: list[ChatMessage]) -> ChatResponse:
+        """Вопрос с учётом истории диалога (история — без системного промпта)."""
         messages = [
             ChatMessage.system(_SYSTEM_PROMPT),
+            *history,
             ChatMessage.user(question),
         ]
         return await self._provider.chat(messages)

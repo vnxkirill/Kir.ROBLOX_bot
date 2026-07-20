@@ -44,3 +44,16 @@ async def test_ai_service_uses_provider() -> None:
     assert response.content == "ответ"
     assert provider.received[0].role == ChatRole.SYSTEM
     assert provider.received[1] == ChatMessage.user("вопрос")
+
+
+async def test_ai_service_chat_includes_history() -> None:
+    provider = _FakeProvider()
+    service = AIService(provider)
+    history = [ChatMessage.user("привет"), ChatMessage.assistant("привет!")]
+
+    await service.chat("как дела?", history)
+
+    # системный промпт → история → новый вопрос
+    assert provider.received[0].role == ChatRole.SYSTEM
+    assert provider.received[1:3] == history
+    assert provider.received[3] == ChatMessage.user("как дела?")

@@ -15,10 +15,10 @@ _WELCOME = (
     "Выбери раздел:"
 )
 
-# Тексты-заглушки разделов. Логика появится в соответствующих модулях.
+# Тексты-заглушки разделов, у которых ещё нет своего модуля с хендлерами.
+# Раздел с реальной логикой (например AI) сюда не входит — его callback
+# обрабатывает роутер соответствующего модуля.
 _SECTION_STUBS: dict[MainMenuAction, str] = {
-    MainMenuAction.HOME: _WELCOME,
-    MainMenuAction.AI: "🤖 Раздел AI в разработке.",
     MainMenuAction.ROBLOX: "🎮 Раздел Roblox в разработке.",
     MainMenuAction.PROFILE: "👤 Раздел «Профиль» в разработке.",
     MainMenuAction.SETTINGS: "⚙ Раздел «Настройки» в разработке.",
@@ -44,7 +44,7 @@ async def menu_home(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
-@router.callback_query(MainMenuCallback.filter())
+@router.callback_query(MainMenuCallback.filter(F.action.in_(set(_SECTION_STUBS))))
 async def menu_section(callback: CallbackQuery, callback_data: MainMenuCallback) -> None:
     await callback.message.edit_text(
         _SECTION_STUBS[callback_data.action], reply_markup=main_menu_keyboard()
