@@ -30,7 +30,6 @@ _WELCOME = (
 # Раздел с реальной логикой (например AI) сюда не входит — его обрабатывает
 # роутер соответствующего модуля.
 _SECTION_STUBS: dict[MainMenuAction, str] = {
-    MainMenuAction.ROBLOX: "🎮 Раздел Roblox в разработке.",
     MainMenuAction.PROFILE: "👤 Раздел «Профиль» в разработке.",
     MainMenuAction.SETTINGS: "⚙ Раздел «Настройки» в разработке.",
     MainMenuAction.HELP: "❓ Раздел «Помощь» в разработке.",
@@ -38,7 +37,6 @@ _SECTION_STUBS: dict[MainMenuAction, str] = {
 
 # Соответствие reply-кнопок разделам-заглушкам.
 _BUTTON_TO_ACTION: dict[MainMenuButton, MainMenuAction] = {
-    MainMenuButton.ROBLOX: MainMenuAction.ROBLOX,
     MainMenuButton.PROFILE: MainMenuAction.PROFILE,
     MainMenuButton.SETTINGS: MainMenuAction.SETTINGS,
     MainMenuButton.HELP: MainMenuAction.HELP,
