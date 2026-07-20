@@ -10,6 +10,7 @@ import aiohttp
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.types import BotCommand
 from loguru import logger
 
 from app.config import get_settings
@@ -24,6 +25,13 @@ from app.middleware import (
 )
 from app.modules.registry import get_modules
 from app.routers import build_root_router
+
+# Команды в кнопке «Меню» слева от поля ввода.
+_BOT_COMMANDS = [
+    BotCommand(command="start", description="🏠 Запустить бота"),
+    BotCommand(command="menu", description="📋 Главное меню"),
+    BotCommand(command="ai", description="🤖 AI-чат"),
+]
 
 
 async def main() -> None:
@@ -61,6 +69,8 @@ async def main() -> None:
 
         for module in modules:
             await module.on_startup(container)
+
+        await bot.set_my_commands(_BOT_COMMANDS)
 
         try:
             logger.info("Бот запущен, начинаю polling")

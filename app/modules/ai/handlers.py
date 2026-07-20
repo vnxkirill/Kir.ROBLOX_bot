@@ -1,8 +1,8 @@
 """Telegram-хендлеры AI-чата.
 
-Вход — кнопка «🤖 AI» главного меню. Внутри чата каждое текстовое
-сообщение уходит в AIService вместе с историей диалога (хранится в FSM).
-Выход — кнопка «Выйти» или /menu.
+Вход — кнопка «🤖 AI» (reply или inline) либо команда /ai. Внутри чата
+каждое текстовое сообщение уходит в AIService вместе с историей диалога
+(хранится в FSM). Выход — кнопка «Выйти» или /menu (глобальный хендлер).
 """
 
 from aiogram import F, Router
@@ -14,6 +14,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.core.container import Container
+from app.keyboards import MainMenuButton, main_reply_keyboard
 from app.keyboards.main_menu import MainMenuAction, MainMenuCallback, main_menu_keyboard
 from app.modules.ai.service import AIService
 from app.modules.ai.states import AIChat
@@ -48,10 +49,26 @@ def _chat_keyboard() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+@router.message(Command("ai"))
+@router.message(F.text == MainMenuButton.AI)
+async def enter_ai_chat_message(
+    message: Message, state: FSMContext, container: Container
+) -> None:
+    """Вход в AI-чат по reply-кнопке или команде /ai."""
+    if not container.settings.openrouter.api_key.get_secret_value():
+        await message.answer(_NO_KEY_TEXT)
+        return
+
+    await state.set_state(AIChat.chatting)
+    await state.update_data(history=[])
+    await message.answer(_CHAT_INTRO, reply_markup=_chat_keyboard())
+
+
 @router.callback_query(MainMenuCallback.filter(F.action == MainMenuAction.AI))
 async def enter_ai_chat(
     callback: CallbackQuery, state: FSMContext, container: Container
 ) -> None:
+    """Вход в AI-чат по inline-кнопке."""
     if not container.settings.openrouter.api_key.get_secret_value():
         await callback.message.edit_text(_NO_KEY_TEXT, reply_markup=main_menu_keyboard())
         await callback.answer()
@@ -72,14 +89,11 @@ async def clear_context(callback: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(AIChatCallback.filter(F.action == "exit"))
 async def exit_ai_chat(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
-    await callback.message.edit_text(_EXIT_TEXT, reply_markup=main_menu_keyboard())
+    await callback.message.edit_text(_EXIT_TEXT)
+    await callback.message.answer(
+        "Ты в главном меню.", reply_markup=main_reply_keyboard()
+    )
     await callback.answer()
-
-
-@router.message(Command("menu"), AIChat.chatting)
-async def exit_by_command(message: Message, state: FSMContext) -> None:
-    await state.clear()
-    await message.answer(_EXIT_TEXT, reply_markup=main_menu_keyboard())
 
 
 @router.message(AIChat.chatting, F.text)

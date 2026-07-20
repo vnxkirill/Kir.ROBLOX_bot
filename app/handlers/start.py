@@ -1,11 +1,22 @@
-"""Базовые хендлеры: /start и навигация по главному меню."""
+"""Базовые хендлеры: /start, /menu и навигация по главному меню.
+
+Разделы открываются двумя способами: reply-кнопки под полем ввода
+и inline-кнопки в сообщении. Оба ведут к одним и тем же действиям.
+"""
 
 from aiogram import F, Router
-from aiogram.filters import CommandStart
+from aiogram.filters import Command, CommandStart
+from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.keyboards.main_menu import MainMenuAction, MainMenuCallback, main_menu_keyboard
+from app.keyboards import (
+    MainMenuAction,
+    MainMenuButton,
+    main_menu_keyboard,
+    main_reply_keyboard,
+)
+from app.keyboards.main_menu import MainMenuCallback
 from app.repositories import UserRepository
 
 router = Router(name="start")
@@ -16,8 +27,8 @@ _WELCOME = (
 )
 
 # Тексты-заглушки разделов, у которых ещё нет своего модуля с хендлерами.
-# Раздел с реальной логикой (например AI) сюда не входит — его callback
-# обрабатывает роутер соответствующего модуля.
+# Раздел с реальной логикой (например AI) сюда не входит — его обрабатывает
+# роутер соответствующего модуля.
 _SECTION_STUBS: dict[MainMenuAction, str] = {
     MainMenuAction.ROBLOX: "🎮 Раздел Roblox в разработке.",
     MainMenuAction.PROFILE: "👤 Раздел «Профиль» в разработке.",
@@ -25,9 +36,18 @@ _SECTION_STUBS: dict[MainMenuAction, str] = {
     MainMenuAction.HELP: "❓ Раздел «Помощь» в разработке.",
 }
 
+# Соответствие reply-кнопок разделам-заглушкам.
+_BUTTON_TO_ACTION: dict[MainMenuButton, MainMenuAction] = {
+    MainMenuButton.ROBLOX: MainMenuAction.ROBLOX,
+    MainMenuButton.PROFILE: MainMenuAction.PROFILE,
+    MainMenuButton.SETTINGS: MainMenuAction.SETTINGS,
+    MainMenuButton.HELP: MainMenuAction.HELP,
+}
+
 
 @router.message(CommandStart())
-async def cmd_start(message: Message, db: AsyncSession) -> None:
+async def cmd_start(message: Message, db: AsyncSession, state: FSMContext) -> None:
+    await state.clear()
     users = UserRepository(db)
     await users.get_or_create(
         message.from_user.id,
@@ -35,7 +55,22 @@ async def cmd_start(message: Message, db: AsyncSession) -> None:
         first_name=message.from_user.first_name,
         language_code=message.from_user.language_code,
     )
-    await message.answer(_WELCOME, reply_markup=main_menu_keyboard())
+    await message.answer(_WELCOME, reply_markup=main_reply_keyboard())
+
+
+@router.message(Command("menu"))
+@router.message(F.text == MainMenuButton.HOME)
+async def cmd_menu(message: Message, state: FSMContext) -> None:
+    """Вернуться в главное меню из любого состояния."""
+    await state.clear()
+    await message.answer(_WELCOME, reply_markup=main_reply_keyboard())
+
+
+@router.message(F.text.in_(set(_BUTTON_TO_ACTION)))
+async def reply_section(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    action = _BUTTON_TO_ACTION[MainMenuButton(message.text)]
+    await message.answer(_SECTION_STUBS[action])
 
 
 @router.callback_query(MainMenuCallback.filter(F.action == MainMenuAction.HOME))
