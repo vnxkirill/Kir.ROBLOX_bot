@@ -7,3 +7,4 @@ logs/
 .pytest_cache/
 .ruff_cache/
 node_modules/
+logs/runner.log
