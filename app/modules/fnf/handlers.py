@@ -80,10 +80,10 @@ GUIDES: dict[str, Guide] = {
                 "5️⃣ Начнётся загрузка — архив появится в папке «Загрузки».",
             ),
         ],
-        footer="➡️ Дальше жми «📖 Как установить мод».",
+        footer="➡️ Дальше жми «▶️ Как запустить мод».",
     ),
     "install": Guide(
-        title="Как установить FNF-мод",
+        title="Как запустить FNF-мод",
         steps=[
             (
                 "step1_extract.jpg",
@@ -118,7 +118,6 @@ class FnfCallback(CallbackData, prefix="fnf"):
 def _fnf_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="📥 Как скачать мод", callback_data=FnfCallback(action="download"))
-    builder.button(text="📖 Как установить мод", callback_data=FnfCallback(action="install"))
     builder.button(text="🌐 Открыть GameJolt FNF", url=_GAMEJOLT_FNF_URL)
     builder.button(text="🕹 Только игры и моды", url=_GAMEJOLT_FNF_GAMES_URL)
     builder.adjust(1)
@@ -149,9 +148,9 @@ async def fnf_menu_callback(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
 
-# Кнопки под инструкцией: со «скачать» ведём на «установить» и наоборот.
+# Кнопки под инструкцией: со «скачать» ведём на «запустить» и наоборот.
 _NEXT_GUIDE: dict[str, tuple[str, str]] = {
-    "download": ("📖 Как установить мод", "install"),
+    "download": ("▶️ Как запустить мод", "install"),
     "install": ("📥 Как скачать мод", "download"),
 }
 
