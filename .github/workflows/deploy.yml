@@ -1,0 +1,44 @@
+name: Deploy
+
+# Деплой на VPS после каждого пуша в main (после успешного CI).
+# Требует секретов в Settings → Secrets and variables → Actions:
+#   SSH_HOST — IP сервера
+#   SSH_USER — root (или пользователь с sudo без пароля)
+#   SSH_KEY  — приватный SSH-ключ (содержимое файла)
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success'
+    # Пока секреты не заданы — job тихо пропускается, ничего не ломая.
+    steps:
+      - name: Check secrets
+        id: check
+        run: |
+          if [ -n "${{ secrets.SSH_HOST }}" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "SSH-секреты не настроены — деплой пропущен."
+          fi
+
+      - name: Deploy over SSH
+        if: steps.check.outputs.ok == 'true'
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            set -e
+            cd /opt/gamecore
+            sudo -u gamecore git pull --ff-only
+            sudo -u gamecore ~gamecore/.local/bin/uv sync --frozen
+            sudo -u gamecore ~gamecore/.local/bin/uv run alembic upgrade head
+            systemctl restart gamecore
+            systemctl --no-pager status gamecore

@@ -1,0 +1,20 @@
+# GameCore AI — systemd-юнит.
+# Устанавливается скриптом setup.sh в /etc/systemd/system/gamecore.service
+
+[Unit]
+Description=GameCore AI Telegram bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gamecore
+WorkingDirectory=/opt/gamecore
+ExecStart=/opt/gamecore/.venv/bin/python -m app.main
+Restart=always
+RestartSec=5
+# Ограничения на всякий случай: бот лёгкий.
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target
