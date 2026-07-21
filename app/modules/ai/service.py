@@ -4,13 +4,9 @@
 выбор модели по задаче, лимиты. Провайдер остаётся тупым транспортом.
 """
 
+from app.modules.ai.knowledge import SYSTEM_PROMPT
 from app.modules.ai.provider import AIProvider
 from app.schemas.ai import ChatMessage, ChatResponse
-
-_SYSTEM_PROMPT = (
-    "Ты — GameCore AI, дружелюбный персональный игровой ассистент. "
-    "Отвечай кратко и по делу, на языке пользователя."
-)
 
 
 class AIService:
@@ -24,7 +20,7 @@ class AIService:
     async def chat(self, question: str, history: list[ChatMessage]) -> ChatResponse:
         """Вопрос с учётом истории диалога (история — без системного промпта)."""
         messages = [
-            ChatMessage.system(_SYSTEM_PROMPT),
+            ChatMessage.system(SYSTEM_PROMPT),
             *history,
             ChatMessage.user(question),
         ]
