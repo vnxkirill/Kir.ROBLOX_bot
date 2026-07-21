@@ -1,20 +1,27 @@
-"""Тесты FNF-модуля: инструкция по установке модов."""
+"""Тесты FNF-модуля: инструкции по скачиванию и установке модов."""
 
-from app.modules.fnf.handlers import _ASSETS_DIR, _GUIDE_CAPTION, _GUIDE_STEPS, _build_album
+from app.modules.fnf.handlers import _ASSETS_DIR, GUIDES, _build_album
+
+
+def test_guides_present() -> None:
+    assert set(GUIDES) == {"download", "install"}
 
 
 def test_guide_assets_exist() -> None:
-    for filename, _ in _GUIDE_STEPS:
-        assert (_ASSETS_DIR / filename).is_file(), f"нет файла {filename}"
+    for guide in GUIDES.values():
+        for filename, _ in guide.steps:
+            assert (_ASSETS_DIR / filename).is_file(), f"нет файла {filename}"
 
 
 def test_album_caption_only_on_first() -> None:
-    album = _build_album()
-    assert len(album) == len(_GUIDE_STEPS)
-    assert album[0].caption == _GUIDE_CAPTION
-    assert all(item.caption is None for item in album[1:])
+    for guide in GUIDES.values():
+        album = _build_album(guide)
+        assert len(album) == len(guide.steps)
+        assert album[0].caption == guide.caption
+        assert all(item.caption is None for item in album[1:])
 
 
 def test_caption_within_telegram_limit() -> None:
     # Лимит подписи Telegram — 1024 символа.
-    assert len(_GUIDE_CAPTION) <= 1024
+    for guide in GUIDES.values():
+        assert len(guide.caption) <= 1024, f"подпись «{guide.title}» слишком длинная"
