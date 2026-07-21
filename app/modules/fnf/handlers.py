@@ -149,6 +149,28 @@ async def fnf_menu_callback(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
 
+# Кнопки под инструкцией: со «скачать» ведём на «установить» и наоборот.
+_NEXT_GUIDE: dict[str, tuple[str, str]] = {
+    "download": ("📖 Как установить мод", "install"),
+    "install": ("📥 Как скачать мод", "download"),
+}
+
+
+def _after_guide_keyboard(action: str) -> InlineKeyboardMarkup:
+    text, next_action = _NEXT_GUIDE[action]
+    builder = InlineKeyboardBuilder()
+    builder.button(text=text, callback_data=FnfCallback(action=next_action))
+    builder.button(text="🎵 Меню FNF", callback_data=FnfCallback(action="menu"))
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+@router.callback_query(FnfCallback.filter(F.action == "menu"))
+async def back_to_fnf_menu(callback: CallbackQuery) -> None:
+    await callback.message.answer(_FNF_TEXT, reply_markup=_fnf_keyboard())
+    await callback.answer()
+
+
 @router.callback_query(FnfCallback.filter(F.action.in_(set(GUIDES))))
 async def show_guide(callback: CallbackQuery, callback_data: FnfCallback) -> None:
     guide = GUIDES[callback_data.action]
@@ -157,4 +179,8 @@ async def show_guide(callback: CallbackQuery, callback_data: FnfCallback) -> Non
     for msg, (filename, _) in zip(sent, guide.steps, strict=False):
         if msg.photo:
             _file_id_cache[filename] = msg.photo[-1].file_id
+    # К альбому нельзя прикрепить кнопки — шлём их отдельным сообщением следом.
+    await callback.message.answer(
+        "Что дальше?", reply_markup=_after_guide_keyboard(callback_data.action)
+    )
     await callback.answer()
