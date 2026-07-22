@@ -39,4 +39,4 @@ def test_format_items_contains_links() -> None:
 
 def test_ready_skills() -> None:
     ready = {s for s, info in SKILLS.items() if info.ready}
-    assert ready == {RobloxSkill.CHAT, RobloxSkill.UGC_SEARCH}
+    assert ready == {RobloxSkill.CHAT, RobloxSkill.UGC_SEARCH, RobloxSkill.FRIENDS}

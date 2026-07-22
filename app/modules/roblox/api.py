@@ -10,9 +10,10 @@ import aiohttp
 from loguru import logger
 
 from app.core.exceptions import ExternalServiceError
-from app.schemas.roblox import UGCItem
+from app.schemas.roblox import RobloxProfile, UGCItem
 
 _CATALOG_URL = "https://catalog.roblox.com/v1/search/items/details"
+_USERNAMES_URL = "https://users.roblox.com/v1/usernames/users"
 # API принимает только эти значения Limit.
 _PAGE_LIMIT = 10
 _TIMEOUT = aiohttp.ClientTimeout(total=15)
@@ -43,6 +44,32 @@ class RobloxCatalogClient:
             raise ExternalServiceError("Сетевая ошибка при обращении к Roblox") from exc
 
         return [self._parse_item(raw) for raw in body.get("data", [])]
+
+    async def resolve_user(self, username: str) -> RobloxProfile | None:
+        """Найти игрока по нику. None — если такого аккаунта нет."""
+        payload = {"usernames": [username], "excludeBannedUsers": False}
+        try:
+            async with self._http.post(
+                _USERNAMES_URL, json=payload, timeout=_TIMEOUT
+            ) as response:
+                if response.status != 200:
+                    logger.error("Roblox usernames HTTP {}", response.status)
+                    raise ExternalServiceError(f"Roblox вернул HTTP {response.status}")
+                body = await response.json()
+        except aiohttp.ClientError as exc:
+            logger.error("Сетевая ошибка Roblox usernames: {}", exc)
+            raise ExternalServiceError("Сетевая ошибка при обращении к Roblox") from exc
+
+        data = body.get("data") or []
+        if not data:
+            return None
+        raw = data[0]
+        return RobloxProfile(
+            id=raw["id"],
+            username=raw["name"],
+            display_name=raw.get("displayName", ""),
+            verified=raw.get("hasVerifiedBadge", False),
+        )
 
     @staticmethod
     def _parse_item(raw: dict[str, Any]) -> UGCItem:

@@ -16,6 +16,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 class RobloxSkill(StrEnum):
     CHAT = "chat"
     UGC_SEARCH = "ugc"
+    FRIENDS = "friends"
     NEWS = "news"
     PLAYER_CHECK = "players"
     GAME_SEARCH = "games"
@@ -39,6 +40,7 @@ class SkillInfo:
 SKILLS: dict[RobloxSkill, SkillInfo] = {
     RobloxSkill.CHAT: SkillInfo("Общение", ready=True),
     RobloxSkill.UGC_SEARCH: SkillInfo("Поиск Roblox UGC", ready=True),
+    RobloxSkill.FRIENDS: SkillInfo("Ищу друзей", ready=True),
     RobloxSkill.NEWS: SkillInfo("Новости Roblox", ready=False),
     RobloxSkill.PLAYER_CHECK: SkillInfo("Проверка игроков", ready=False),
     RobloxSkill.GAME_SEARCH: SkillInfo("Поиск игр", ready=False),

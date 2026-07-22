@@ -16,3 +16,16 @@ class UGCItem(BaseModel):
     @property
     def url(self) -> str:
         return f"https://www.roblox.com/catalog/{self.id}"
+
+
+class RobloxProfile(BaseModel):
+    """Публичный профиль игрока Roblox."""
+
+    id: int
+    username: str
+    display_name: str = ""
+    verified: bool = False
+
+    @property
+    def url(self) -> str:
+        return f"https://www.roblox.com/users/{self.id}/profile"

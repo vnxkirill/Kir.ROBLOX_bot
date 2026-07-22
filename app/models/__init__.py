@@ -4,6 +4,7 @@
 чтобы Alembic видел его при автогенерации миграций.
 """
 
+from app.models.friend_listing import FriendListing
 from app.models.user import User
 
-__all__ = ["User"]
+__all__ = ["FriendListing", "User"]
