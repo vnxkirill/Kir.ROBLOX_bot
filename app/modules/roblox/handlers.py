@@ -4,8 +4,11 @@
 по официальному каталогу Roblox. Остальные навыки — в разработке.
 """
 
+from contextlib import suppress
+
 from aiogram import F, Router
 from aiogram.enums import ChatAction
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
@@ -63,7 +66,8 @@ async def roblox_menu_callback(callback: CallbackQuery, state: FSMContext) -> No
 @router.callback_query(RobloxSkillCallback.filter(F.skill == RobloxSkill.UGC_SEARCH))
 async def start_ugc_search(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(UGCSearch.waiting_query)
-    await callback.message.edit_text(_UGC_PROMPT)
+    with suppress(TelegramBadRequest):  # повторное нажатие: текст тот же — Telegram ругается
+        await callback.message.edit_text(_UGC_PROMPT)
     await callback.answer()
 
 

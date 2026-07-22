@@ -37,3 +37,9 @@ class UserRepository(BaseRepository[User]):
             user.first_name = first_name
             user.language_code = language_code
         return user
+
+    async def set_nickname(self, telegram_id: int, nickname: str) -> User:
+        """Сохранить ник пользователя (создаёт запись, если её ещё нет)."""
+        user = await self.get_or_create(telegram_id)
+        user.nickname = nickname
+        return user
