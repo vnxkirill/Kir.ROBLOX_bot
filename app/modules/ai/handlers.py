@@ -51,10 +51,11 @@ def _chat_keyboard() -> InlineKeyboardMarkup:
 
 @router.message(Command("ai"))
 @router.message(F.text == MainMenuButton.AI)
+@router.message(F.text == MainMenuButton.CHAT)
 async def enter_ai_chat_message(
     message: Message, state: FSMContext, container: Container
 ) -> None:
-    """Вход в AI-чат по reply-кнопке или команде /ai."""
+    """Вход в AI-чат по reply-кнопке («AI» или «Общение») или команде /ai."""
     if not container.settings.openrouter.api_key.get_secret_value():
         await message.answer(_NO_KEY_TEXT)
         return

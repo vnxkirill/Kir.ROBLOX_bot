@@ -12,6 +12,7 @@ from aiogram.utils.keyboard import ReplyKeyboardBuilder
 
 class MainMenuButton(StrEnum):
     HOME = "🏠 Главная"
+    CHAT = "💬 Общение"
     AI = "🤖 AI"
     ROBLOX = "🎮 Roblox"
     FNF = "🎵 FNF Mods"
