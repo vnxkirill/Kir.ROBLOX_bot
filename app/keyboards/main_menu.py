@@ -16,6 +16,7 @@ class MainMenuAction(StrEnum):
     AI = "ai"
     ROBLOX = "roblox"
     FNF = "fnf"
+    NEWS = "news"
     PROFILE = "profile"
     SETTINGS = "settings"
     HELP = "help"
@@ -30,6 +31,7 @@ _BUTTONS: list[tuple[str, MainMenuAction]] = [
     ("🤖 AI", MainMenuAction.AI),
     ("🎮 Roblox", MainMenuAction.ROBLOX),
     ("🎵 FNF Mods", MainMenuAction.FNF),
+    ("📰 Новости", MainMenuAction.NEWS),
     ("👤 Профиль", MainMenuAction.PROFILE),
     ("⚙ Настройки", MainMenuAction.SETTINGS),
     ("❓ Помощь", MainMenuAction.HELP),

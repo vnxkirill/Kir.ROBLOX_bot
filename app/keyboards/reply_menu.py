@@ -16,6 +16,7 @@ class MainMenuButton(StrEnum):
     AI = "🤖 AI"
     ROBLOX = "🎮 Roblox"
     FNF = "🎵 FNF Mods"
+    NEWS = "📰 Новости"
     PROFILE = "👤 Профиль"
     SETTINGS = "⚙ Настройки"
     HELP = "❓ Помощь"
