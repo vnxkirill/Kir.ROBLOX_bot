@@ -3,29 +3,29 @@
 from html import escape
 
 from aiogram import F, Router
+from aiogram.enums import ChatAction
 from aiogram.filters.callback_data import CallbackData
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.container import Container
 from app.keyboards import MainMenuButton
 from app.keyboards.main_menu import MainMenuAction, MainMenuCallback
 from app.models import User
 from app.modules.profile.states import ProfileEdit
+from app.modules.roblox.api import RobloxCatalogClient
 from app.repositories import UserRepository
 
 router = Router(name="profile")
 
-_NICK_MIN = 2
-_NICK_MAX = 32
-
 _PROMPT = (
-    "✏️ Напиши свой ник (от 2 до 32 символов).\n"
+    "✏️ Напиши свой <b>ник в Roblox</b> — я проверю, что такой игрок есть, "
+    "и сохраню его в профиль.\n"
     "Отмена: /menu"
 )
-_TOO_LONG = f"⚠️ Слишком длинно. Ник должен быть от {_NICK_MIN} до {_NICK_MAX} символов."
-_TOO_SHORT = f"⚠️ Слишком коротко. Ник должен быть от {_NICK_MIN} до {_NICK_MAX} символов."
+_NOT_FOUND = "❌ Игрок с таким ником не найден в Roblox. Проверь написание и попробуй ещё раз."
 
 
 class ProfileCallback(CallbackData, prefix="profile"):
@@ -34,14 +34,20 @@ class ProfileCallback(CallbackData, prefix="profile"):
 
 def _profile_text(user: User | None) -> str:
     nickname = user.nickname if user and user.nickname else None
-    if nickname:
-        return f"👤 <b>Твой профиль</b>\n\nНик: <b>{escape(nickname)}</b>"
-    return "👤 <b>Твой профиль</b>\n\nНик пока не задан. Нажми кнопку ниже, чтобы ввести."
+    if not nickname:
+        return (
+            "👤 <b>Твой профиль</b>\n\n"
+            "Roblox-ник пока не привязан. Нажми кнопку ниже и введи свой ник."
+        )
+    url = user.roblox_profile_url
+    nick = escape(nickname)
+    link = f'<a href="{url}">{nick}</a> ☑️' if url else f"<b>{nick}</b>"
+    return f"👤 <b>Твой профиль</b>\n\nRoblox: {link}"
 
 
 def _profile_keyboard(has_nick: bool) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    text = "✏️ Изменить ник" if has_nick else "✏️ Ввести ник"
+    text = "✏️ Изменить Roblox-ник" if has_nick else "✏️ Привязать Roblox-ник"
     builder.button(text=text, callback_data=ProfileCallback(action="edit"))
     return builder.as_markup()
 
@@ -77,16 +83,25 @@ async def start_edit(callback: CallbackQuery, state: FSMContext) -> None:
 
 
 @router.message(ProfileEdit.waiting_nickname, F.text)
-async def save_nickname(message: Message, state: FSMContext, db: AsyncSession) -> None:
+async def save_nickname(
+    message: Message, state: FSMContext, db: AsyncSession, container: Container
+) -> None:
     nickname = message.text.strip()
-    if len(nickname) < _NICK_MIN:
-        await message.answer(_TOO_SHORT)
-        return
-    if len(nickname) > _NICK_MAX:
-        await message.answer(_TOO_LONG)
+
+    # Проверяем ник в Roblox: сохраняем только реально существующий аккаунт.
+    await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+    profile = await container.get(RobloxCatalogClient).resolve_user(nickname)
+    if profile is None:
+        await message.answer(_NOT_FOUND)
         return
 
-    await UserRepository(db).set_nickname(message.from_user.id, nickname)
+    await UserRepository(db).set_nickname(
+        message.from_user.id, profile.username, profile.id
+    )
     await state.clear()
-    await message.answer(f"✅ Ник сохранён: <b>{escape(nickname)}</b>")
+    await message.answer(
+        f'✅ Roblox-аккаунт подтверждён и сохранён: '
+        f'<a href="{profile.url}">{escape(profile.username)}</a>',
+        disable_web_page_preview=True,
+    )
     await _show_profile(message, db, message.from_user.id)

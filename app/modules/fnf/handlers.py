@@ -30,8 +30,7 @@ _FNF_TEXT = (
     "Моды Friday Night Funkin' живут на GameJolt — жми кнопку:"
 )
 
-_GAMEJOLT_FNF_URL = "https://gamejolt.com/c/fnf"
-_GAMEJOLT_FNF_GAMES_URL = "https://gamejolt.com/c/fnf/games"
+_GAMEJOLT_FNF_URL = "https://gamejolt.com/games/best/tag-fnf"
 
 _ASSETS_DIR = Path(__file__).parent / "assets"
 
@@ -118,8 +117,7 @@ class FnfCallback(CallbackData, prefix="fnf"):
 def _fnf_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="📥 Как скачать мод", callback_data=FnfCallback(action="download"))
-    builder.button(text="🌐 Открыть GameJolt FNF", url=_GAMEJOLT_FNF_URL)
-    builder.button(text="🕹 Только игры и моды", url=_GAMEJOLT_FNF_GAMES_URL)
+    builder.button(text="🌐 Лучшие FNF-моды на GameJolt", url=_GAMEJOLT_FNF_URL)
     builder.adjust(1)
     return builder.as_markup()
 

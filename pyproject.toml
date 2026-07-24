@@ -3,7 +3,7 @@ name = "gamecore-ai"
 version = "0.1.0"
 description = "GameCore AI — персональный интеллектуальный игровой ассистент"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = [
     "aiogram>=3.15",
     "aiohttp>=3.10",
