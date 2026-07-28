@@ -1,23 +1,21 @@
-"""Контроль доступа: закрытое тестирование.
+"""Контроль доступа: открытое тестирование.
 
-Сейчас бот отвечает только владельцу (BOT_OWNER_ID).
-Когда проект откроется для всех — этот middleware заменяется
-на систему ролей, остальной код не меняется.
+Бот отвечает всем пользователям. Админы (владелец + BOT_ADMIN_IDS)
+получают флаг is_admin — хендлеры используют его для админ-функций.
 """
 
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 from aiogram import BaseMiddleware
-from aiogram.types import CallbackQuery, Message, TelegramObject
-from loguru import logger
-
-_CLOSED_BETA_TEXT = "🚧 Проект находится в закрытом тестировании."
+from aiogram.types import TelegramObject
 
 
-class OwnerOnlyMiddleware(BaseMiddleware):
-    def __init__(self, owner_id: int) -> None:
-        self._owner_id = owner_id
+class AccessMiddleware(BaseMiddleware):
+    """Пропускает всех, помечая админов флагом is_admin."""
+
+    def __init__(self, admin_ids: set[int]) -> None:
+        self._admin_ids = admin_ids
 
     async def __call__(
         self,
@@ -26,12 +24,5 @@ class OwnerOnlyMiddleware(BaseMiddleware):
         data: dict[str, Any],
     ) -> Any:
         user = data.get("event_from_user")
-        if user is None or user.id == self._owner_id:
-            return await handler(event, data)
-
-        logger.info("Отклонён не-владелец: id={} username={}", user.id, user.username)
-        if isinstance(event, Message):
-            await event.answer(_CLOSED_BETA_TEXT)
-        elif isinstance(event, CallbackQuery):
-            await event.answer(_CLOSED_BETA_TEXT, show_alert=True)
-        return None
+        data["is_admin"] = user is not None and user.id in self._admin_ids
+        return await handler(event, data)

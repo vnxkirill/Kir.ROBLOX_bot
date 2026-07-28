@@ -7,9 +7,10 @@
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Annotated
 
-from pydantic import Field, SecretStr
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, SecretStr, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 _ENV_FILE = ".env"
 
@@ -30,7 +31,22 @@ class BotSettings(_GroupSettings):
     model_config = SettingsConfigDict(env_prefix="BOT_")
 
     token: SecretStr
+    # Владелец — главный админ проекта.
     owner_id: int
+    # Дополнительные админы: BOT_ADMIN_IDS="123,456" (через запятую).
+    admin_ids: Annotated[list[int], NoDecode] = Field(default_factory=list)
+
+    @field_validator("admin_ids", mode="before")
+    @classmethod
+    def _parse_admin_ids(cls, value: object) -> object:
+        if isinstance(value, str):
+            return [int(part) for part in value.replace(",", " ").split()]
+        return value
+
+    @property
+    def all_admin_ids(self) -> set[int]:
+        """Все админы: владелец + список из BOT_ADMIN_IDS."""
+        return {self.owner_id, *self.admin_ids}
 
 
 class DatabaseSettings(_GroupSettings):

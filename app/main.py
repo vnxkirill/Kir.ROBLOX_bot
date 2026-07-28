@@ -18,10 +18,10 @@ from app.core.container import Container
 from app.core.logging import setup_logging
 from app.database import create_engine_and_factory
 from app.middleware import (
+    AccessMiddleware,
     ContainerMiddleware,
     DatabaseMiddleware,
     LoggingMiddleware,
-    OwnerOnlyMiddleware,
 )
 from app.modules.registry import get_modules
 from app.routers import build_root_router
@@ -61,7 +61,7 @@ async def main() -> None:
 
         # Порядок middleware важен: логирование → доступ → контейнер → БД.
         dp.update.outer_middleware(LoggingMiddleware())
-        dp.update.outer_middleware(OwnerOnlyMiddleware(settings.bot.owner_id))
+        dp.update.outer_middleware(AccessMiddleware(settings.bot.all_admin_ids))
         dp.update.middleware(ContainerMiddleware(container))
         dp.update.middleware(DatabaseMiddleware(session_factory))
 
