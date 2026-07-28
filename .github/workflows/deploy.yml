@@ -36,7 +36,7 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           script: |
             set -e
-            cd ~/gamecore
+            cd /opt/KiRoblox_bot
             git pull --ff-only
             ~/.local/bin/uv sync --frozen
             ~/.local/bin/uv run alembic upgrade head
