@@ -27,15 +27,10 @@ router = Router(name="fnf")
 
 _FNF_TEXT = (
     "🎵 <b>FNF Mods</b>\n\n"
-    "Скачай саму игру или найди моды на GameJolt — жми кнопку:"
+    "Моды Friday Night Funkin' живут на GameJolt — жми кнопку:"
 )
 
 _GAMEJOLT_FNF_URL = "https://gamejolt.com/games/best/tag-fnf"
-# Официальный релиз игры от FunkinCrew: постоянная ссылка на последнюю
-# Windows-версию, скачивание начинается сразу по нажатию.
-_FNF_GAME_DOWNLOAD_URL = (
-    "https://github.com/FunkinCrew/Funkin/releases/latest/download/funkin-windows-64bit.zip"
-)
 
 _ASSETS_DIR = Path(__file__).parent / "assets"
 
@@ -121,7 +116,6 @@ class FnfCallback(CallbackData, prefix="fnf"):
 
 def _fnf_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.button(text="🎮 Скачать игру FNF (Windows)", url=_FNF_GAME_DOWNLOAD_URL)
     builder.button(text="📥 Как скачать мод", callback_data=FnfCallback(action="download"))
     builder.button(text="🌐 Лучшие FNF-моды на GameJolt", url=_GAMEJOLT_FNF_URL)
     builder.adjust(1)
