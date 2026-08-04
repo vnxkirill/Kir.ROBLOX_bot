@@ -5,7 +5,7 @@ from app.routers import build_root_router
 
 
 def test_system_prompt_mentions_key_sections() -> None:
-    for keyword in ("GameCore AI", "Roblox", "FNF", "UGC", "/menu", "GameJolt"):
+    for keyword in ("@KiRoblox", "Roblox", "FNF", "UGC", "/menu", "GameJolt"):
         assert keyword in SYSTEM_PROMPT, f"в промпте нет «{keyword}»"
 
 

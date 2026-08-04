@@ -22,7 +22,7 @@ from app.repositories import UserRepository
 router = Router(name="start")
 
 _WELCOME = (
-    "👋 Привет! Я <b>GameCore AI</b> — твой персональный игровой ассистент.\n\n"
+    "👋 Привет! Я <b>@KiRoblox</b> — твой персональный игровой ассистент.\n\n"
     "Выбери раздел:"
 )
 
