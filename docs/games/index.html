@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>KiRoblox Игры</title>
+<title>batmGAMES 🕹</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   :root {
@@ -89,8 +89,8 @@
 </style>
 </head>
 <body>
-  <div class="logo"><span class="ki">Ki</span><span class="roblox">Roblox</span> 🕹</div>
-  <div class="tagline">Игровая площадка — подарок каждому игроку</div>
+  <div class="logo"><span class="ki">batm</span><span class="roblox">GAMES</span> 🕹</div>
+  <div class="tagline">Игровая площадка @KiRoblox — подарок каждому игроку</div>
 
   <div class="grid">
     <a class="card runner" href="runner/">
@@ -101,26 +101,20 @@
       <p>Беги и перепрыгивай кубики! Чем дальше — тем быстрее. Побей свой рекорд.</p>
     </a>
 
-    <div class="card fnf locked" id="fnf-card">
+    <a class="card fnf" href="fnf-beat/">
       <div class="glow"></div>
       <span class="emoji">🎤</span>
-      <span class="badge">СКОРО</span>
+      <span class="badge">ИГРАТЬ</span>
       <h2>FNF Beat Battle</h2>
       <p>Ритм-баттл в стиле Friday Night Funkin'. Лови стрелки в такт музыке!</p>
-    </div>
+    </a>
   </div>
 
-  <div class="footer">@KiRoblox — играй прямо в Telegram</div>
+  <div class="footer">🕹 batmGAMES · @KiRoblox — играй прямо в Telegram</div>
 
 <script>
   const tg = window.Telegram?.WebApp;
   if (tg) { tg.ready(); tg.expand(); }
-  document.getElementById("fnf-card").addEventListener("click", () => {
-    if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred("warning");
-    const badge = document.querySelector("#fnf-card .badge");
-    badge.textContent = "🔒 СКОРО";
-    setTimeout(() => (badge.textContent = "СКОРО"), 1200);
-  });
 </script>
 </body>
 </html>

@@ -34,7 +34,7 @@ GAMES: list[GameInfo] = [
     GameInfo(
         slug="fnf-beat",
         title="🎤 FNF Beat Battle",
-        description="Ритм-баттл в стиле FNF. Скоро!",
-        ready=False,
+        description="Ритм-баттл в стиле FNF: лови стрелки в такт музыке!",
+        ready=True,
     ),
 ]
