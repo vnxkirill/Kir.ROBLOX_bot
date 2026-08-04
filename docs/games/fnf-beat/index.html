@@ -45,7 +45,7 @@
   }
   #overlay.hidden { display: none; }
   #overlay h1 { font-size: 26px; font-weight: 800; }
-  #overlay p { color: var(--muted); font-size: 14px; max-width: 300px; line-height: 1.55; }
+  #overlay p { color: var(--muted); font-size: 14px; max-width: 320px; line-height: 1.55; }
   #overlay .score-line { font-size: 17px; font-weight: 700; color: var(--accent); }
   button {
     margin-top: 8px;
@@ -77,8 +77,9 @@
   <a class="back" href="../">⬅ к играм</a>
   <div id="overlay">
     <h1>🎤 FNF Beat Battle</h1>
-    <p>Лови стрелки в такт музыке! Тапай по своей полосе, когда стрелка долетает до контура сверху.<br><br>
-    На клавиатуре — стрелки или DFJK.</p>
+    <p>Битва с ботом! 🤖 Бот поёт свои куски справа, твои ноты-буквы летят слева.<br><br>
+    💻 На компьютере — жми букву A–Z, написанную на ноте.<br>
+    📱 На телефоне — просто тапай в ритм.</p>
     <button class="song-btn" data-song="beat">🎹 Beat Battle</button>
     <button class="song-btn" data-song="slide9">🌀 Slidenotefication 9 (мод)</button>
   </div>
@@ -107,37 +108,41 @@ const W = 420, H = 760;
 canvas.width = W;
 canvas.height = H;
 
-const LANES = 4;
-const LANE_W = 76;
-const FIELD_W = LANE_W * LANES;
-const FIELD_X = (W - FIELD_W) / 2;
-const RECEPTOR_Y = 130;           // контуры-приёмники сверху, ноты летят вверх
-const TRAVEL_TIME = 1.1;          // сек от низа до приёмника
-const LANE_COLORS = ["#c24bff", "#00c2ff", "#22e77c", "#ff4b6e"]; // ← ↓ ↑ →
-const LANE_DIRS = ["left", "down", "up", "right"];
+// ── 26 нот-букв: слева — игрок, справа — бот ────────────────
+const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const NOTE_SIZE = 36;
+const PZONE = { x: 16, w: 178 };   // зона игрока (слева)
+const BZONE = { x: 226, w: 178 };  // зона бота (справа)
+const RECEPTOR_Y = 150;            // линия попадания сверху, ноты летят вверх
+const TRAVEL_TIME = 1.3;           // сек от низа до линии
+const SECTION = 3.6;               // сек — куски бота и игрока чередуются
+
+function letterColor(i) { return `hsl(${(i * 137.5) % 360} 85% 62%)`; }
+function letterX(zone, i) { return zone.x + (i / 25) * (zone.w - NOTE_SIZE) + NOTE_SIZE / 2; }
 
 // тайминги попаданий, сек
-const SICK = 0.055, GOOD = 0.105, BAD = 0.15;
+const SICK = 0.07, GOOD = 0.13, BAD = 0.18;
 
 const BPM = 130;
 const BEAT = 60 / BPM;
-const SONG_BEATS = 128;           // ~59 секунд
+const SONG_BEATS = 128;            // ~59 секунд
 
 let best = Number(localStorage.getItem("fnfbeat_best") || 0);
 
 // ── Состояние ───────────────────────────────────────────────
 const state = {
   running: false,
-  notes: [],        // {lane, time, hit, missed}
+  notes: [],        // {letter, time, side, hit, missed}
   score: 0,
   combo: 0,
   maxCombo: 0,
   health: 50,       // 0..100
   hits: { sick: 0, good: 0, bad: 0, miss: 0 },
   rating: null,     // {text, color, until}
-  receptorFlash: [0, 0, 0, 0],
+  fx: [],           // частицы
+  playerSingUntil: 0,
+  botSingUntil: 0,
   songEnd: 0,
-  beatPulse: 0,
 };
 
 // ── Музыка (WebAudio, всё синтезируется) ────────────────────
@@ -147,7 +152,6 @@ function makeAudio() {
   const master = ac.createGain();
   master.gain.value = 0.5;
   master.connect(ac.destination);
-  // шум для хэтов
   const noiseBuf = ac.createBuffer(1, ac.sampleRate * 0.1, ac.sampleRate);
   const data = noiseBuf.getChannelData(0);
   for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
@@ -205,7 +209,7 @@ const STAB_CHORDS = [[220, 261.6, 329.6], [174.6, 220, 261.6]];
 
 let songStart = 0;
 function scheduleMusic() {
-  // планируем звук на 1.2 сек вперёд от текущего audio-времени
+  if (audio.scheduledUpTo === Infinity) return;
   const { ac } = audio;
   const until = ac.currentTime + 1.2;
   while (audio.scheduledUpTo < until) {
@@ -213,37 +217,36 @@ function scheduleMusic() {
     const t = songStart + b * BEAT * 0.5;
     const beatNum = Math.floor(b / 2);
     if (beatNum >= SONG_BEATS) break;
-    if (b % 2 === 0) {                       // каждый бит
+    if (b % 2 === 0) {
       kick(t);
       bass(t, BASS_LINE[beatNum % 8], BEAT * 0.45);
       if (beatNum % 2 === 1) stab(t, STAB_CHORDS[(beatNum >> 2) % 2]);
     }
-    hat(t, b % 4 === 2);                     // хэты на восьмушках
+    hat(t, b % 4 === 2);
     audio.scheduledUpTo++;
   }
 }
 
-// ── Генерация нот ───────────────────────────────────────────
+// ── Генерация нот (синт-песня) ──────────────────────────────
 function generateNotes() {
   const notes = [];
-  let prevLane = -1;
-  for (let e = 8; e < SONG_BEATS * 2 - 4; e++) {  // сетка восьмушек
+  for (let e = 8; e < SONG_BEATS * 2 - 4; e++) {
     const progress = e / (SONG_BEATS * 2);
     const onBeat = e % 2 === 0;
-    let p = (onBeat ? 0.55 : 0.18) * (0.55 + progress * 0.75);
+    const p = (onBeat ? 0.55 : 0.18) * (0.55 + progress * 0.75);
     if (Math.random() >= p) continue;
-    let lane = (Math.random() * LANES) | 0;
-    if (lane === prevLane && Math.random() < 0.6) lane = (lane + 1 + ((Math.random() * 3) | 0)) % LANES;
-    const time = e * BEAT * 0.5;
-    notes.push({ lane, time, hit: false, missed: false });
-    // изредка — двойная нота на сильную долю во второй половине
-    if (onBeat && progress > 0.5 && Math.random() < 0.12) {
-      const lane2 = (lane + 1 + ((Math.random() * 3) | 0)) % LANES;
-      notes.push({ lane: lane2, time, hit: false, missed: false });
-    }
-    prevLane = lane;
+    notes.push({ time: e * BEAT * 0.5, lane: (Math.random() * 4) | 0 });
   }
   return notes;
+}
+
+// раздаём буквы и стороны: куски по SECTION сек — бот и игрок по очереди
+function decorate(raw) {
+  return raw.map((n) => {
+    const side = Math.floor(n.time / SECTION) % 2 === 0 ? "bot" : "player";
+    const letter = ((Math.floor(n.time * 100) * 31 + (n.lane || 0) * 7) % 26 + 26) % 26;
+    return { time: n.time, letter, side, hit: false, missed: false };
+  });
 }
 
 // ── Старт/финиш ─────────────────────────────────────────────
@@ -265,7 +268,7 @@ async function start(songId) {
   if (modSource) { try { modSource.stop(); } catch {} modSource = null; }
 
   if (song.synth) {
-    state.notes = generateNotes();
+    state.notes = decorate(generateNotes());
     songStart = audio.ac.currentTime + 0.8;
     audio.scheduledUpTo = 0;
     state.songEnd = SONG_BEATS * BEAT;
@@ -281,9 +284,9 @@ async function start(songId) {
     }
     // пропускаем длинное интро: старт за 2.5 сек до первой ноты
     const skip = Math.max(0, mod.chart[0][0] - 2.5);
-    state.notes = mod.chart.map(([time, lane]) => ({ lane, time: time - skip, hit: false, missed: false }));
+    state.notes = decorate(mod.chart.map(([time, lane]) => ({ time: time - skip, lane })));
     songStart = audio.ac.currentTime + 0.8;
-    audio.scheduledUpTo = Infinity;         // синт-музыку не планируем
+    audio.scheduledUpTo = Infinity;
     state.songEnd = mod.buffer.duration - skip;
     modSource = audio.ac.createBufferSource();
     modSource.buffer = mod.buffer;
@@ -295,6 +298,7 @@ async function start(songId) {
   state.health = 50;
   state.hits = { sick: 0, good: 0, bad: 0, miss: 0 };
   state.rating = null;
+  state.fx = [];
   overlay.classList.add("hidden");
   state.running = true;
   requestAnimationFrame(loop);
@@ -337,129 +341,296 @@ function finish(won) {
   overlay.classList.remove("hidden");
 }
 
-// ── Ввод ────────────────────────────────────────────────────
-const KEYMAP = {
-  ArrowLeft: 0, ArrowDown: 1, ArrowUp: 2, ArrowRight: 3,
-  KeyD: 0, KeyF: 1, KeyJ: 2, KeyK: 3,
-};
+// ── Ввод: 26 букв на компьютере, тап — на телефоне ──────────
 document.addEventListener("keydown", (e) => {
   if (e.repeat) return;
-  const lane = KEYMAP[e.code];
-  if (lane !== undefined) { e.preventDefault(); press(lane); }
+  if (/^Key[A-Z]$/.test(e.code)) {
+    e.preventDefault();
+    press(ALPHABET.indexOf(e.code[3]));
+  }
 });
 document.addEventListener("pointerdown", (e) => {
   if (e.target.closest("button, a")) return;
   if (!state.running) return;
-  const rect = canvas.getBoundingClientRect();
-  const x = ((e.clientX - rect.left) / rect.width) * W;
-  let lane = Math.floor((x - FIELD_X) / LANE_W);
-  lane = Math.max(0, Math.min(LANES - 1, lane));
-  press(lane);
+  tapHit();
 });
 
 function setRating(text, color) {
   state.rating = { text, color, until: songTime() + 0.5 };
 }
 
-function press(lane) {
-  if (!state.running) return;
-  state.receptorFlash[lane] = 1;
-  const now = songTime();
-  let bestNote = null, bestD = Infinity;
-  for (const n of state.notes) {
-    if (n.lane !== lane || n.hit || n.missed) continue;
-    const d = Math.abs(n.time - now);
-    if (d < bestD) { bestD = d; bestNote = n; }
+function sparkle(x, y, color) {
+  for (let i = 0; i < 10; i++) {
+    const a = Math.random() * Math.PI * 2, v = 1 + Math.random() * 3;
+    state.fx.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 20, max: 20, color });
   }
-  if (!bestNote || bestD > BAD) {
-    // пустой тап — лёгкий штраф, чтобы не спамили
-    state.combo = 0;
-    state.health = Math.max(0, state.health - 1.5);
-    return;
-  }
-  bestNote.hit = true;
+}
+
+function reward(note, d) {
+  note.hit = true;
+  state.playerSingUntil = songTime() + 0.28;
   state.combo++;
   state.maxCombo = Math.max(state.maxCombo, state.combo);
   let gain, pts;
-  if (bestD <= SICK)      { state.hits.sick++; gain = 3;   pts = 350; setRating("SICK!", "#22e77c"); }
-  else if (bestD <= GOOD) { state.hits.good++; gain = 2;   pts = 200; setRating("GOOD", "#00c2ff"); }
-  else                    { state.hits.bad++;  gain = 0.5; pts = 80;  setRating("BAD", "#ffb020"); }
+  if (d <= SICK)      { state.hits.sick++; gain = 3;   pts = 350; setRating("SICK!", "#22e77c"); }
+  else if (d <= GOOD) { state.hits.good++; gain = 2;   pts = 200; setRating("GOOD", "#00c2ff"); }
+  else                { state.hits.bad++;  gain = 0.5; pts = 80;  setRating("BAD", "#ffb020"); }
   state.health = Math.min(100, state.health + gain);
   state.score += pts + state.combo * 2;
-  if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred(bestD <= SICK ? "medium" : "light");
+  sparkle(letterX(PZONE, note.letter), RECEPTOR_Y, letterColor(note.letter));
+  if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred(d <= SICK ? "medium" : "light");
+}
+
+function penalty() {
+  state.combo = 0;
+  state.health = Math.max(0, state.health - 1.5);
+}
+
+// компьютер: нужна именно буква, написанная на ноте
+function press(letterIdx) {
+  if (!state.running) return;
+  const now = songTime();
+  let bestNote = null, bestD = Infinity;
+  for (const n of state.notes) {
+    if (n.side !== "player" || n.letter !== letterIdx || n.hit || n.missed) continue;
+    const d = Math.abs(n.time - now);
+    if (d < bestD) { bestD = d; bestNote = n; }
+  }
+  if (!bestNote || bestD > BAD) return penalty();
+  reward(bestNote, bestD);
+}
+
+// телефон: тап в ритм — засчитывается ближайшая твоя нота
+function tapHit() {
+  const now = songTime();
+  let bestNote = null, bestD = Infinity;
+  for (const n of state.notes) {
+    if (n.side !== "player" || n.hit || n.missed) continue;
+    const d = Math.abs(n.time - now);
+    if (d < bestD) { bestD = d; bestNote = n; }
+  }
+  if (!bestNote || bestD > BAD) return penalty();
+  reward(bestNote, bestD);
+}
+
+// ── Фон-сцена ───────────────────────────────────────────────
+function drawStage(now) {
+  const beatFrac = ((now / BEAT) % 1 + 1) % 1;
+  const pulse = Math.max(0, 1 - beatFrac * 3);
+
+  // дальняя стена с виньеткой
+  const g = ctx.createRadialGradient(W / 2, H * 0.35, 60, W / 2, H * 0.55, 520);
+  g.addColorStop(0, `rgba(162, 60, 245, ${0.10 + pulse * 0.06})`);
+  g.addColorStop(1, "rgba(10, 8, 20, 0.55)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  // прожекторы на артистов
+  ctx.globalAlpha = 0.10 + pulse * 0.08;
+  ctx.fillStyle = "#c24bff";
+  ctx.beginPath();
+  ctx.moveTo(70, 0); ctx.lineTo(150, 0);
+  ctx.lineTo(160, H - 130); ctx.lineTo(40, H - 130);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = "#00c2ff";
+  ctx.beginPath();
+  ctx.moveTo(W - 150, 0); ctx.lineTo(W - 70, 0);
+  ctx.lineTo(W - 40, H - 130); ctx.lineTo(W - 160, H - 130);
+  ctx.closePath(); ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // сцена-пол
+  ctx.fillStyle = "#191d30";
+  ctx.fillRect(0, H - 130, W, 130);
+  ctx.strokeStyle = "rgba(255,255,255,0.10)";
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(0, H - 130); ctx.lineTo(W, H - 130); ctx.stroke();
+
+  // колонки по краям, дёргаются на бит
+  const sp = 1 + pulse * 0.05;
+  for (const sx of [8, W - 44]) {
+    ctx.save();
+    ctx.translate(sx + 18, H - 74);
+    ctx.scale(sp, sp);
+    ctx.fillStyle = "#0e1120";
+    ctx.beginPath(); ctx.roundRect(-18, -50, 36, 92, 6); ctx.fill();
+    ctx.fillStyle = "#232840";
+    ctx.beginPath(); ctx.arc(0, -22, 11, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(0, 16, 14, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = `rgba(162,60,245,${0.35 + pulse * 0.5})`;
+    ctx.beginPath(); ctx.arc(0, 16, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  // толпа-силуэты
+  ctx.fillStyle = "#0b0d16";
+  for (let i = 0; i < 11; i++) {
+    const x = 20 + i * 38 + (i % 2) * 8;
+    const bob = Math.sin(now * 4 + i) * 3 - pulse * 4;
+    ctx.beginPath();
+    ctx.arc(x, H - 16 + bob, 13, Math.PI, 0);
+    ctx.fill();
+    ctx.fillRect(x - 13, H - 16 + bob, 26, 20);
+  }
+}
+
+// ── Персонажи ───────────────────────────────────────────────
+function drawNoob(cx, cy, sing, pulse) {
+  // игрок — роблокс-нуб слева
+  const s = 1 + pulse * 0.04;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(s, s);
+  const arm = sing ? -14 : 0;
+  ctx.fillStyle = "#2d4fd6";                       // ноги
+  ctx.beginPath(); ctx.roundRect(-16, 22, 13, 22, 4); ctx.fill();
+  ctx.beginPath(); ctx.roundRect(3, 22, 13, 22, 4); ctx.fill();
+  ctx.fillStyle = "#22c55e";                       // торс
+  ctx.beginPath(); ctx.roundRect(-20, -4, 40, 28, 6); ctx.fill();
+  ctx.fillStyle = "#ffd23e";                       // руки
+  ctx.beginPath(); ctx.roundRect(-30, -2 + arm, 10, 24, 4); ctx.fill();
+  ctx.beginPath(); ctx.roundRect(20, -2 + arm, 10, 24, 4); ctx.fill();
+  ctx.beginPath(); ctx.roundRect(-15, -32, 30, 28, 8); ctx.fill();  // голова
+  ctx.fillStyle = "#1a1a1a";                       // лицо
+  ctx.beginPath();
+  ctx.arc(-7, -21, 2.6, 0, Math.PI * 2);
+  ctx.arc(7, -21, 2.6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#1a1a1a"; ctx.lineWidth = 2;
+  ctx.beginPath();
+  if (sing) { ctx.arc(0, -13, 5, 0, Math.PI * 2); }               // рот открыт — поёт
+  else { ctx.arc(0, -16, 6, 0.15 * Math.PI, 0.85 * Math.PI); }    // улыбка
+  ctx.stroke();
+  // микрофон
+  ctx.fillStyle = "#8b92b0";
+  ctx.beginPath(); ctx.roundRect(26, -12 + arm, 4, 16, 2); ctx.fill();
+  ctx.fillStyle = "#454c66";
+  ctx.beginPath(); ctx.arc(28, -16 + arm, 6, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+function drawBot(cx, cy, sing, pulse) {
+  // соперник — робот справа
+  const s = 1 + pulse * 0.04;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(s, s);
+  const arm = sing ? -14 : 0;
+  ctx.fillStyle = "#3a4161";                       // ноги
+  ctx.beginPath(); ctx.roundRect(-16, 22, 13, 22, 4); ctx.fill();
+  ctx.beginPath(); ctx.roundRect(3, 22, 13, 22, 4); ctx.fill();
+  ctx.fillStyle = "#565f8a";                       // корпус
+  ctx.beginPath(); ctx.roundRect(-20, -4, 40, 28, 8); ctx.fill();
+  ctx.fillStyle = `rgba(162,60,245,${sing ? 0.9 : 0.45})`;        // сердечник
+  ctx.beginPath(); ctx.arc(0, 10, 6, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#565f8a";                       // руки
+  ctx.beginPath(); ctx.roundRect(-30, -2 + arm, 10, 24, 4); ctx.fill();
+  ctx.beginPath(); ctx.roundRect(20, -2, 10, 24, 4); ctx.fill();
+  // голова-экран
+  ctx.fillStyle = "#20263f";
+  ctx.beginPath(); ctx.roundRect(-17, -34, 34, 30, 8); ctx.fill();
+  ctx.strokeStyle = "#767ea6"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.roundRect(-17, -34, 34, 30, 8); ctx.stroke();
+  // антенна
+  ctx.beginPath(); ctx.moveTo(0, -34); ctx.lineTo(0, -44); ctx.stroke();
+  ctx.fillStyle = sing ? "#22e77c" : "#a23cf5";
+  ctx.beginPath(); ctx.arc(0, -46, 3.5, 0, Math.PI * 2); ctx.fill();
+  // глаза-экран
+  ctx.fillStyle = sing ? "#22e77c" : "#00c2ff";
+  if (sing) {
+    ctx.font = "800 16px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("♪ ♪", 0, -14);
+  } else {
+    ctx.beginPath();
+    ctx.roundRect(-10, -24, 8, 4, 2);
+    ctx.roundRect(2, -24, 8, 4, 2);
+    ctx.fill();
+  }
+  // микрофон в левой руке
+  ctx.fillStyle = "#8b92b0";
+  ctx.beginPath(); ctx.roundRect(-30, -12 + arm, 4, 16, 2); ctx.fill();
+  ctx.fillStyle = "#454c66";
+  ctx.beginPath(); ctx.arc(-28, -16 + arm, 6, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
 }
 
 // ── Отрисовка ───────────────────────────────────────────────
-function laneX(lane) { return FIELD_X + lane * LANE_W + LANE_W / 2; }
-
-function drawArrow(x, y, size, dir, fill, stroke, glow) {
+function drawNote(n, y) {
+  const zone = n.side === "player" ? PZONE : BZONE;
+  const x = letterX(zone, n.letter);
+  const color = letterColor(n.letter);
   ctx.save();
-  ctx.translate(x, y);
-  const rot = { left: Math.PI / 2, down: 0, up: Math.PI, right: -Math.PI / 2 }[dir];
-  ctx.rotate(rot);
-  // стрелка вниз в локальных координатах
-  const s = size / 2;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 14;
+  ctx.fillStyle = color;
   ctx.beginPath();
-  ctx.moveTo(-s * 0.42, -s);
-  ctx.lineTo(s * 0.42, -s);
-  ctx.lineTo(s * 0.42, 0);
-  ctx.lineTo(s * 0.85, 0);
-  ctx.lineTo(0, s);
-  ctx.lineTo(-s * 0.85, 0);
-  ctx.lineTo(-s * 0.42, 0);
-  ctx.closePath();
-  if (glow) { ctx.shadowColor = glow; ctx.shadowBlur = 18; }
-  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
-  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 3; ctx.stroke(); }
+  ctx.roundRect(x - NOTE_SIZE / 2, y - NOTE_SIZE / 2, NOTE_SIZE, NOTE_SIZE, 9);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = "rgba(0,0,0,0.65)";
+  ctx.font = "800 20px system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(ALPHABET[n.letter], x, y + 1);
   ctx.restore();
+  ctx.textBaseline = "alphabetic";
 }
 
 function draw() {
   const now = songTime();
   ctx.clearRect(0, 0, W, H);
+  drawStage(now);
 
-  // пульс фона на бит
   const beatFrac = ((now / BEAT) % 1 + 1) % 1;
   const pulse = Math.max(0, 1 - beatFrac * 3);
-  ctx.fillStyle = `rgba(162, 60, 245, ${0.04 + pulse * 0.05})`;
-  ctx.fillRect(0, 0, W, H);
 
-  // разделители полос
-  ctx.strokeStyle = "rgba(255,255,255,0.06)";
-  ctx.lineWidth = 1;
-  for (let i = 0; i <= LANES; i++) {
-    const x = FIELD_X + i * LANE_W;
-    ctx.beginPath(); ctx.moveTo(x, 60); ctx.lineTo(x, H); ctx.stroke();
+  // персонажи на сцене
+  drawNoob(105, H - 185, now < state.playerSingUntil, pulse);
+  drawBot(315, H - 185, now < state.botSingUntil, pulse);
+
+  // линии попадания
+  for (const [zone, label, active] of [[PZONE, "ТЫ", now < state.playerSingUntil], [BZONE, "🤖 БОТ", now < state.botSingUntil]]) {
+    ctx.strokeStyle = active ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.28)";
+    ctx.lineWidth = active ? 4 : 3;
+    ctx.beginPath();
+    ctx.moveTo(zone.x, RECEPTOR_Y);
+    ctx.lineTo(zone.x + zone.w, RECEPTOR_Y);
+    ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,255,0.5)";
+    ctx.font = "800 12px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(label, zone.x + zone.w / 2, RECEPTOR_Y - 14);
   }
 
-  // приёмники
-  for (let i = 0; i < LANES; i++) {
-    const flash = state.receptorFlash[i];
-    drawArrow(laneX(i), RECEPTOR_Y, 54 + flash * 8, LANE_DIRS[i],
-      flash > 0.05 ? LANE_COLORS[i] : null,
-      flash > 0.05 ? "#ffffff" : "rgba(255,255,255,0.35)",
-      flash > 0.05 ? LANE_COLORS[i] : null);
-    state.receptorFlash[i] = Math.max(0, flash - 0.08);
-  }
-
-  // ноты (летят снизу вверх)
+  // ноты
   for (const n of state.notes) {
     if (n.hit || n.missed) continue;
     const dt = n.time - now;
     if (dt > TRAVEL_TIME + 0.1 || dt < -0.25) continue;
-    const y = RECEPTOR_Y + (dt / TRAVEL_TIME) * (H - RECEPTOR_Y + 60);
-    drawArrow(laneX(n.lane), y, 54, LANE_DIRS[n.lane], LANE_COLORS[n.lane], "rgba(0,0,0,0.4)", LANE_COLORS[n.lane]);
+    const y = RECEPTOR_Y + (dt / TRAVEL_TIME) * (H - RECEPTOR_Y - 160);
+    drawNote(n, y);
   }
 
+  // частицы
+  for (const p of state.fx) {
+    ctx.globalAlpha = p.life / p.max;
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x, p.y, 4, 4);
+    p.x += p.vx; p.y += p.vy; p.life--;
+  }
+  ctx.globalAlpha = 1;
+  state.fx = state.fx.filter((p) => p.life > 0);
+
   // здоровье
-  const hbW = FIELD_W, hbX = FIELD_X, hbY = 44;
+  const hbW = W - 32, hbX = 16, hbY = 44;
   ctx.fillStyle = "rgba(255,255,255,0.12)";
   ctx.beginPath(); ctx.roundRect(hbX, hbY, hbW, 10, 5); ctx.fill();
   const hw = (state.health / 100) * hbW;
   ctx.fillStyle = state.health > 25 ? "#22e77c" : "#ff4b6e";
   ctx.beginPath(); ctx.roundRect(hbX, hbY, Math.max(10, hw), 10, 5); ctx.fill();
 
-  // счёт и комбо
+  // счёт и рекорд
   ctx.textAlign = "center";
   ctx.fillStyle = "#f2f4ff";
   ctx.font = "800 22px system-ui, sans-serif";
@@ -473,7 +644,7 @@ function draw() {
     ctx.textAlign = "center";
     ctx.font = "800 30px system-ui, sans-serif";
     ctx.fillStyle = "rgba(255,255,255,0.9)";
-    ctx.fillText(state.combo + "×", W / 2, H * 0.46);
+    ctx.fillText(state.combo + "×", W / 2, H * 0.42);
   }
   if (state.rating && now < state.rating.until) {
     const a = Math.min(1, (state.rating.until - now) / 0.35);
@@ -481,7 +652,7 @@ function draw() {
     ctx.textAlign = "center";
     ctx.font = "800 26px system-ui, sans-serif";
     ctx.fillStyle = state.rating.color;
-    ctx.fillText(state.rating.text, W / 2, H * 0.40);
+    ctx.fillText(state.rating.text, W / 2, H * 0.36);
     ctx.globalAlpha = 1;
   }
 }
@@ -492,9 +663,16 @@ function loop() {
   scheduleMusic();
   const now = songTime();
 
-  // просроченные ноты
   for (const n of state.notes) {
-    if (!n.hit && !n.missed && now - n.time > BAD) {
+    if (n.hit || n.missed) continue;
+    if (n.side === "bot") {
+      // бот отыгрывает свои ноты сам
+      if (now >= n.time) {
+        n.hit = true;
+        state.botSingUntil = now + 0.28;
+        sparkle(letterX(BZONE, n.letter), RECEPTOR_Y, letterColor(n.letter));
+      }
+    } else if (now - n.time > BAD) {
       n.missed = true;
       state.hits.miss++;
       state.combo = 0;

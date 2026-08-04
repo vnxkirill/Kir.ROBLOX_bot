@@ -21,8 +21,8 @@ from app.modules.games.catalog import GAMES, GAMES_BASE_URL
 router = Router(name="games")
 
 _GAMES_TEXT = (
-    "🕹 <b>Игровая площадка</b>\n\n"
-    "Наш подарок каждому игроку — мини-игры прямо в Telegram!\n"
+    "🕹 <b>batmGAMES</b>\n\n"
+    "Наша игровая площадка — подарок каждому игроку: мини-игры прямо в Telegram!\n"
     "Выбирай и играй, ничего скачивать не нужно:"
 )
 
@@ -43,7 +43,7 @@ def _games_keyboard() -> InlineKeyboardMarkup:
                 callback_data=GamesCallback(action="soon", slug=game.slug),
             )
     builder.button(
-        text="🗂 Все игры (площадка)", web_app=WebAppInfo(url=f"{GAMES_BASE_URL}/")
+        text="🕹 batmGAMES — вся площадка", web_app=WebAppInfo(url=f"{GAMES_BASE_URL}/")
     )
     builder.adjust(1)
     return builder.as_markup()
