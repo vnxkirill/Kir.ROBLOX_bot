@@ -162,13 +162,20 @@ function jump() {
 document.addEventListener("keydown", (e) => {
   if (e.code === "Space" || e.code === "ArrowUp") { e.preventDefault(); jump(); }
 });
-canvas.addEventListener("pointerdown", jump);
+// прыжок тапом в любом месте экрана — и по игре, и под ней (#2)
+document.addEventListener("pointerdown", (e) => {
+  if (e.target.closest("button, a")) return;
+  jump();
+});
 startBtn.addEventListener("click", start);
+
+let lastTime = 0;
 
 function start() {
   reset();
   overlay.classList.add("hidden");
   state.running = true;
+  lastTime = 0;
   requestAnimationFrame(loop);
 }
 
@@ -183,14 +190,14 @@ function spawnObstacle() {
 }
 
 // ── Отрисовка ───────────────────────────────────────────────
-function drawBackground() {
+function drawBackground(dt = 0) {
   // небо-градиент рисует CSS, тут — параллакс-облака и сетка-пол
   ctx.fillStyle = "rgba(255,255,255,0.06)";
   for (const c of state.clouds) {
     ctx.beginPath();
     ctx.ellipse(c.x, c.y, 34, 12, 0, 0, Math.PI * 2);
     ctx.fill();
-    c.x -= c.s * state.speed * 0.25;
+    c.x -= c.s * state.speed * 0.25 * dt;
     if (c.x < -50) { c.x = W + 50; c.y = 30 + Math.random() * 90; }
   }
   // пол
@@ -220,10 +227,10 @@ function roundRect(x, y, w, h, r, fill) {
   ctx.fill();
 }
 
-function drawPlayer() {
+function drawPlayer(dt = 0) {
   const { x, w, h } = player;
   const y = player.y - h;
-  player.legPhase += state.speed * 0.09;
+  player.legPhase += state.speed * 0.09 * dt;
   const legSwing = player.jumping ? 0 : Math.sin(player.legPhase) * 7;
 
   // тень
@@ -285,14 +292,16 @@ function drawParticles() {
 }
 
 // ── Логика ──────────────────────────────────────────────────
-function update() {
-  state.t++;
+// dt — время кадра, нормированное к 60 FPS: на 120 Гц экране dt ≈ 0.5,
+// поэтому игра идёт с одинаковой скоростью на любом устройстве (#1)
+function update(dt) {
+  state.t += dt;
   state.speed = 6 + Math.min(8, state.score / 600);
-  state.score += state.speed * 0.12;
+  state.score += state.speed * 0.12 * dt;
 
   // прыжок/гравитация
-  player.vy += 0.72;
-  player.y += player.vy;
+  player.vy += 0.72 * dt;
+  player.y += player.vy * dt;
   if (player.y >= GROUND_Y) {
     player.y = GROUND_Y;
     player.vy = 0;
@@ -300,19 +309,20 @@ function update() {
   }
 
   // пыль из-под ног
-  if (!player.jumping && state.t % 5 === 0) {
+  if (!player.jumping && Math.floor(state.t) % 5 === 0) {
     state.particles.push({
       x: player.x + 6, y: GROUND_Y - 2,
       vx: -state.speed * 0.4, vy: -Math.random(),
       s: 3, life: 18, max: 18, color: "#8b92b0",
     });
   }
-  for (const p of state.particles) { p.x += p.vx; p.y += p.vy; p.life--; }
+  for (const p of state.particles) { p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; }
   state.particles = state.particles.filter((p) => p.life > 0);
 
   // препятствия
-  if (--state.nextSpawn <= 0) spawnObstacle();
-  for (const o of state.obstacles) o.x -= state.speed;
+  state.nextSpawn -= dt;
+  if (state.nextSpawn <= 0) spawnObstacle();
+  for (const o of state.obstacles) o.x -= state.speed * dt;
   state.obstacles = state.obstacles.filter((o) => o.x + o.size > -30);
 
   // столкновения (щадящий хитбокс)
@@ -347,14 +357,17 @@ function gameOver() {
   document.getElementById("againBtn").addEventListener("click", start);
 }
 
-function loop() {
+function loop(now) {
   if (!state.running) return;
-  update();
+  // dt в «кадрах 60 FPS»: 16.67 мс → 1.0; ограничиваем на случай сворачивания
+  const dt = lastTime ? Math.min((now - lastTime) / 16.667, 3) : 1;
+  lastTime = now;
+  update(dt);
   ctx.clearRect(0, 0, W, H);
-  drawBackground();
+  drawBackground(dt);
   drawParticles();
   drawObstacles();
-  drawPlayer();
+  drawPlayer(dt);
   requestAnimationFrame(loop);
 }
 
