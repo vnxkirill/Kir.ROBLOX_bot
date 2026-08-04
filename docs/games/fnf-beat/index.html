@@ -69,12 +69,34 @@
     text-decoration: none;
     z-index: 6;
   }
+  #botplay {
+    position: absolute;
+    top: 66px; right: 12px;
+    z-index: 6;
+    margin: 0;
+    font-size: 11px;
+    font-weight: 800;
+    padding: 7px 12px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    color: var(--muted);
+    box-shadow: none;
+    display: none;
+  }
+  #botplay.on {
+    background: linear-gradient(135deg, #22e77c, #0f9d58);
+    border-color: transparent;
+    color: #06281a;
+    box-shadow: 0 4px 16px rgba(34, 231, 124, 0.4);
+  }
 </style>
 </head>
 <body>
 <div id="wrap">
   <canvas id="game"></canvas>
   <a class="back" href="../">⬅ к играм</a>
+  <button id="botplay">🤖 BOT PLAY</button>
   <div id="overlay">
     <h1>🎤 FNF Beat Battle</h1>
     <p>🎹 <b>Beat Battle</b> — классика: лови стрелки в такт, тапай по полосе (клавиатура: стрелки или DFJK).<br><br>
@@ -92,6 +114,7 @@ if (tg) { tg.ready(); tg.expand(); }
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 const overlay = document.getElementById("overlay");
+const botplayBtn = document.getElementById("botplay");
 
 // ── Песни: classic — 4 стрелки, battle — 26 букв и бот ──────
 const SONGS = {
@@ -156,6 +179,7 @@ const state = {
   playerSingUntil: 0,
   botSingUntil: 0,
   songEnd: 0,
+  botplay: false,   // авто-игра: все клавиши жмутся сами
 };
 
 function win() { return WINDOWS[state.mode]; }
@@ -333,6 +357,8 @@ async function start(songId) {
   state.playerSingUntil = 0;
   state.botSingUntil = 0;
   overlay.classList.add("hidden");
+  botplayBtn.style.display = "block";
+  botplayBtn.classList.toggle("on", state.botplay);
   state.running = true;
   requestAnimationFrame(loop);
 }
@@ -351,6 +377,12 @@ overlay.addEventListener("click", (e) => {
   start(btn.dataset.song);
 });
 
+// 🤖 BOT PLAY: все клавиши жмутся сами (счёт без рекорда)
+botplayBtn.addEventListener("click", () => {
+  state.botplay = !state.botplay;
+  botplayBtn.classList.toggle("on", state.botplay);
+});
+
 function songTime() { return audio.ac.currentTime - songStart; }
 
 function finish(won) {
@@ -361,10 +393,13 @@ function finish(won) {
   const total = state.hits.sick + state.hits.good + state.hits.bad + state.hits.miss;
   const acc = total ? Math.round(((state.hits.sick + state.hits.good * 0.7 + state.hits.bad * 0.3) / total) * 100) : 0;
   const final = Math.floor(state.score);
-  if (final > best) { best = final; localStorage.setItem("fnfbeat_best", best); }
+  // в BOT PLAY рекорд не записываем — играл-то бот!
+  if (!state.botplay && final > best) { best = final; localStorage.setItem("fnfbeat_best", best); }
   if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred(won ? "success" : "error");
+  botplayBtn.style.display = "none";
   overlay.innerHTML = `
     <h1>${won ? "🏆 Победа!" : "💀 Проигрыш…"}</h1>
+    ${state.botplay ? '<p style="color:#22e77c;font-weight:800">🤖 BOT PLAY — рекорд не считается</p>' : ""}
     <div class="score-line">Счёт: ${final} · Рекорд: ${best}</div>
     <p>Точность: ${acc}% · Макс. комбо: ${state.maxCombo}<br>
     Sick ${state.hits.sick} · Good ${state.hits.good} · Bad ${state.hits.bad} · Miss ${state.hits.miss}</p>
@@ -797,6 +832,15 @@ function loop() {
   if (!state.running) return;
   scheduleMusic();
   const now = songTime();
+
+  // 🤖 BOT PLAY: сам жмёт нужную клавишу, когда нота у линии
+  if (state.botplay) {
+    for (const n of state.notes) {
+      if (n.hit || n.missed || n.side === "bot" || n.time - now > 0.02) continue;
+      if (state.mode === "battle") pressLetter(n.letter);
+      else pressLane(n.lane);
+    }
+  }
 
   for (const n of state.notes) {
     if (n.hit || n.missed) continue;
