@@ -77,9 +77,8 @@
   <a class="back" href="../">⬅ к играм</a>
   <div id="overlay">
     <h1>🎤 FNF Beat Battle</h1>
-    <p>Битва с ботом! 🤖 Бот поёт свои куски справа, твои ноты-буквы летят слева.<br><br>
-    💻 На компьютере — жми букву A–Z, написанную на ноте.<br>
-    📱 На телефоне — просто тапай в ритм.</p>
+    <p>🎹 <b>Beat Battle</b> — классика: лови стрелки в такт, тапай по полосе (клавиатура: стрелки или DFJK).<br><br>
+    🌀 <b>Slidenotefication 9</b> — битва с ботом 🤖: 26 нот-букв, жми A–Z на компьютере или тапай в ритм на телефоне.</p>
     <button class="song-btn" data-song="beat">🎹 Beat Battle</button>
     <button class="song-btn" data-song="slide9">🌀 Slidenotefication 9 (мод)</button>
   </div>
@@ -94,10 +93,10 @@ const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 const overlay = document.getElementById("overlay");
 
-// ── Песни: синт-битва и треки из модов ──────────────────────
+// ── Песни: classic — 4 стрелки, battle — 26 букв и бот ──────
 const SONGS = {
-  beat:   { title: "Beat Battle", synth: true },
-  slide9: { title: "Slidenotefication 9", audio: "songs/slide9.ogg", chart: "songs/slide9_chart.json" },
+  beat:   { title: "Beat Battle", synth: true, mode: "classic" },
+  slide9: { title: "Slidenotefication 9", audio: "songs/slide9.ogg", chart: "songs/slide9_chart.json", mode: "battle" },
 };
 let currentSong = "beat";
 const modCache = {};   // songId -> {buffer, chart}
@@ -108,20 +107,32 @@ const W = 420, H = 760;
 canvas.width = W;
 canvas.height = H;
 
-// ── 26 нот-букв: слева — игрок, справа — бот ────────────────
+// ── Классика: 4 полосы со стрелками ─────────────────────────
+const LANES = 4;
+const LANE_W = 76;
+const FIELD_W = LANE_W * LANES;
+const FIELD_X = (W - FIELD_W) / 2;
+const LANE_COLORS = ["#c24bff", "#00c2ff", "#22e77c", "#ff4b6e"]; // ← ↓ ↑ →
+const LANE_DIRS = ["left", "down", "up", "right"];
+
+// ── Битва: 26 нот-букв, слева — игрок, справа — бот ─────────
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 const NOTE_SIZE = 36;
 const PZONE = { x: 16, w: 178 };   // зона игрока (слева)
 const BZONE = { x: 226, w: 178 };  // зона бота (справа)
-const RECEPTOR_Y = 150;            // линия попадания сверху, ноты летят вверх
-const TRAVEL_TIME = 1.3;           // сек от низа до линии
 const SECTION = 3.6;               // сек — куски бота и игрока чередуются
+
+const RECEPTOR_Y = 140;            // линия попадания сверху, ноты летят вверх
+const TRAVEL_TIME = 1.2;           // сек от низа до линии
 
 function letterColor(i) { return `hsl(${(i * 137.5) % 360} 85% 62%)`; }
 function letterX(zone, i) { return zone.x + (i / 25) * (zone.w - NOTE_SIZE) + NOTE_SIZE / 2; }
 
-// тайминги попаданий, сек
-const SICK = 0.07, GOOD = 0.13, BAD = 0.18;
+// тайминги попаданий, сек (в битве окна чуть шире — букв 26!)
+const WINDOWS = {
+  classic: { sick: 0.055, good: 0.105, bad: 0.15 },
+  battle:  { sick: 0.07,  good: 0.13,  bad: 0.18 },
+};
 
 const BPM = 130;
 const BEAT = 60 / BPM;
@@ -132,18 +143,22 @@ let best = Number(localStorage.getItem("fnfbeat_best") || 0);
 // ── Состояние ───────────────────────────────────────────────
 const state = {
   running: false,
-  notes: [],        // {letter, time, side, hit, missed}
+  mode: "classic",
+  notes: [],        // classic: {lane,time,...}; battle: {letter,time,side,...}
   score: 0,
   combo: 0,
   maxCombo: 0,
   health: 50,       // 0..100
   hits: { sick: 0, good: 0, bad: 0, miss: 0 },
   rating: null,     // {text, color, until}
-  fx: [],           // частицы
+  receptorFlash: [0, 0, 0, 0],
+  fx: [],           // частицы (битва)
   playerSingUntil: 0,
   botSingUntil: 0,
   songEnd: 0,
 };
+
+function win() { return WINDOWS[state.mode]; }
 
 // ── Музыка (WebAudio, всё синтезируется) ────────────────────
 let audio = null;
@@ -152,6 +167,7 @@ function makeAudio() {
   const master = ac.createGain();
   master.gain.value = 0.5;
   master.connect(ac.destination);
+  // шум для хэтов
   const noiseBuf = ac.createBuffer(1, ac.sampleRate * 0.1, ac.sampleRate);
   const data = noiseBuf.getChannelData(0);
   for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
@@ -217,30 +233,40 @@ function scheduleMusic() {
     const t = songStart + b * BEAT * 0.5;
     const beatNum = Math.floor(b / 2);
     if (beatNum >= SONG_BEATS) break;
-    if (b % 2 === 0) {
+    if (b % 2 === 0) {                       // каждый бит
       kick(t);
       bass(t, BASS_LINE[beatNum % 8], BEAT * 0.45);
       if (beatNum % 2 === 1) stab(t, STAB_CHORDS[(beatNum >> 2) % 2]);
     }
-    hat(t, b % 4 === 2);
+    hat(t, b % 4 === 2);                     // хэты на восьмушках
     audio.scheduledUpTo++;
   }
 }
 
-// ── Генерация нот (синт-песня) ──────────────────────────────
+// ── Генерация нот (классика, синт-песня) ────────────────────
 function generateNotes() {
   const notes = [];
-  for (let e = 8; e < SONG_BEATS * 2 - 4; e++) {
+  let prevLane = -1;
+  for (let e = 8; e < SONG_BEATS * 2 - 4; e++) {  // сетка восьмушек
     const progress = e / (SONG_BEATS * 2);
     const onBeat = e % 2 === 0;
     const p = (onBeat ? 0.55 : 0.18) * (0.55 + progress * 0.75);
     if (Math.random() >= p) continue;
-    notes.push({ time: e * BEAT * 0.5, lane: (Math.random() * 4) | 0 });
+    let lane = (Math.random() * LANES) | 0;
+    if (lane === prevLane && Math.random() < 0.6) lane = (lane + 1 + ((Math.random() * 3) | 0)) % LANES;
+    const time = e * BEAT * 0.5;
+    notes.push({ lane, time, hit: false, missed: false });
+    // изредка — двойная нота на сильную долю во второй половине
+    if (onBeat && progress > 0.5 && Math.random() < 0.12) {
+      const lane2 = (lane + 1 + ((Math.random() * 3) | 0)) % LANES;
+      notes.push({ lane: lane2, time, hit: false, missed: false });
+    }
+    prevLane = lane;
   }
   return notes;
 }
 
-// раздаём буквы и стороны: куски по SECTION сек — бот и игрок по очереди
+// битва: раздаём буквы и стороны — куски по SECTION сек чередуются
 function decorate(raw) {
   return raw.map((n) => {
     const side = Math.floor(n.time / SECTION) % 2 === 0 ? "bot" : "player";
@@ -266,9 +292,10 @@ async function start(songId) {
   if (!audio) audio = makeAudio();
   audio.ac.resume();
   if (modSource) { try { modSource.stop(); } catch {} modSource = null; }
+  state.mode = song.mode;
 
   if (song.synth) {
-    state.notes = decorate(generateNotes());
+    state.notes = generateNotes();
     songStart = audio.ac.currentTime + 0.8;
     audio.scheduledUpTo = 0;
     state.songEnd = SONG_BEATS * BEAT;
@@ -284,9 +311,12 @@ async function start(songId) {
     }
     // пропускаем длинное интро: старт за 2.5 сек до первой ноты
     const skip = Math.max(0, mod.chart[0][0] - 2.5);
-    state.notes = decorate(mod.chart.map(([time, lane]) => ({ time: time - skip, lane })));
+    const raw = mod.chart.map(([time, lane]) => ({ time: time - skip, lane }));
+    state.notes = song.mode === "battle"
+      ? decorate(raw)
+      : raw.map((n) => ({ lane: n.lane, time: n.time, hit: false, missed: false }));
     songStart = audio.ac.currentTime + 0.8;
-    audio.scheduledUpTo = Infinity;
+    audio.scheduledUpTo = Infinity;         // синт-музыку не планируем
     state.songEnd = mod.buffer.duration - skip;
     modSource = audio.ac.createBufferSource();
     modSource.buffer = mod.buffer;
@@ -299,6 +329,9 @@ async function start(songId) {
   state.hits = { sick: 0, good: 0, bad: 0, miss: 0 };
   state.rating = null;
   state.fx = [];
+  state.receptorFlash = [0, 0, 0, 0];
+  state.playerSingUntil = 0;
+  state.botSingUntil = 0;
   overlay.classList.add("hidden");
   state.running = true;
   requestAnimationFrame(loop);
@@ -341,18 +374,33 @@ function finish(won) {
   overlay.classList.remove("hidden");
 }
 
-// ── Ввод: 26 букв на компьютере, тап — на телефоне ──────────
+// ── Ввод ────────────────────────────────────────────────────
+const KEYMAP = {
+  ArrowLeft: 0, ArrowDown: 1, ArrowUp: 2, ArrowRight: 3,
+  KeyD: 0, KeyF: 1, KeyJ: 2, KeyK: 3,
+};
 document.addEventListener("keydown", (e) => {
   if (e.repeat) return;
-  if (/^Key[A-Z]$/.test(e.code)) {
-    e.preventDefault();
-    press(ALPHABET.indexOf(e.code[3]));
+  if (state.mode === "battle") {
+    // битва: 26 букв — жми ту, что написана на ноте
+    if (/^Key[A-Z]$/.test(e.code)) {
+      e.preventDefault();
+      pressLetter(ALPHABET.indexOf(e.code[3]));
+    }
+    return;
   }
+  const lane = KEYMAP[e.code];
+  if (lane !== undefined) { e.preventDefault(); pressLane(lane); }
 });
 document.addEventListener("pointerdown", (e) => {
   if (e.target.closest("button, a")) return;
   if (!state.running) return;
-  tapHit();
+  if (state.mode === "battle") return tapHit();  // телефон: тап в ритм
+  const rect = canvas.getBoundingClientRect();
+  const x = ((e.clientX - rect.left) / rect.width) * W;
+  let lane = Math.floor((x - FIELD_X) / LANE_W);
+  lane = Math.max(0, Math.min(LANES - 1, lane));
+  pressLane(lane);
 });
 
 function setRating(text, color) {
@@ -368,26 +416,45 @@ function sparkle(x, y, color) {
 
 function reward(note, d) {
   note.hit = true;
-  state.playerSingUntil = songTime() + 0.28;
   state.combo++;
   state.maxCombo = Math.max(state.maxCombo, state.combo);
+  const { sick, good } = win();
   let gain, pts;
-  if (d <= SICK)      { state.hits.sick++; gain = 3;   pts = 350; setRating("SICK!", "#22e77c"); }
-  else if (d <= GOOD) { state.hits.good++; gain = 2;   pts = 200; setRating("GOOD", "#00c2ff"); }
+  if (d <= sick)      { state.hits.sick++; gain = 3;   pts = 350; setRating("SICK!", "#22e77c"); }
+  else if (d <= good) { state.hits.good++; gain = 2;   pts = 200; setRating("GOOD", "#00c2ff"); }
   else                { state.hits.bad++;  gain = 0.5; pts = 80;  setRating("BAD", "#ffb020"); }
   state.health = Math.min(100, state.health + gain);
   state.score += pts + state.combo * 2;
-  sparkle(letterX(PZONE, note.letter), RECEPTOR_Y, letterColor(note.letter));
-  if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred(d <= SICK ? "medium" : "light");
+  if (state.mode === "battle") {
+    state.playerSingUntil = songTime() + 0.28;
+    sparkle(letterX(PZONE, note.letter), RECEPTOR_Y, letterColor(note.letter));
+  }
+  if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred(d <= sick ? "medium" : "light");
 }
 
 function penalty() {
+  // пустой тап — лёгкий штраф, чтобы не спамили
   state.combo = 0;
   state.health = Math.max(0, state.health - 1.5);
 }
 
-// компьютер: нужна именно буква, написанная на ноте
-function press(letterIdx) {
+// классика: тап/клавиша по полосе
+function pressLane(lane) {
+  if (!state.running) return;
+  state.receptorFlash[lane] = 1;
+  const now = songTime();
+  let bestNote = null, bestD = Infinity;
+  for (const n of state.notes) {
+    if (n.lane !== lane || n.hit || n.missed) continue;
+    const d = Math.abs(n.time - now);
+    if (d < bestD) { bestD = d; bestNote = n; }
+  }
+  if (!bestNote || bestD > win().bad) return penalty();
+  reward(bestNote, bestD);
+}
+
+// битва, компьютер: нужна именно буква, написанная на ноте
+function pressLetter(letterIdx) {
   if (!state.running) return;
   const now = songTime();
   let bestNote = null, bestD = Infinity;
@@ -396,11 +463,11 @@ function press(letterIdx) {
     const d = Math.abs(n.time - now);
     if (d < bestD) { bestD = d; bestNote = n; }
   }
-  if (!bestNote || bestD > BAD) return penalty();
+  if (!bestNote || bestD > win().bad) return penalty();
   reward(bestNote, bestD);
 }
 
-// телефон: тап в ритм — засчитывается ближайшая твоя нота
+// битва, телефон: тап в ритм — засчитывается ближайшая твоя нота
 function tapHit() {
   const now = songTime();
   let bestNote = null, bestD = Infinity;
@@ -409,11 +476,73 @@ function tapHit() {
     const d = Math.abs(n.time - now);
     if (d < bestD) { bestD = d; bestNote = n; }
   }
-  if (!bestNote || bestD > BAD) return penalty();
+  if (!bestNote || bestD > win().bad) return penalty();
   reward(bestNote, bestD);
 }
 
-// ── Фон-сцена ───────────────────────────────────────────────
+// ── Классика: отрисовка стрелок ─────────────────────────────
+function laneX(lane) { return FIELD_X + lane * LANE_W + LANE_W / 2; }
+
+function drawArrow(x, y, size, dir, fill, stroke, glow) {
+  ctx.save();
+  ctx.translate(x, y);
+  const rot = { left: Math.PI / 2, down: 0, up: Math.PI, right: -Math.PI / 2 }[dir];
+  ctx.rotate(rot);
+  // стрелка вниз в локальных координатах
+  const s = size / 2;
+  ctx.beginPath();
+  ctx.moveTo(-s * 0.42, -s);
+  ctx.lineTo(s * 0.42, -s);
+  ctx.lineTo(s * 0.42, 0);
+  ctx.lineTo(s * 0.85, 0);
+  ctx.lineTo(0, s);
+  ctx.lineTo(-s * 0.85, 0);
+  ctx.lineTo(-s * 0.42, 0);
+  ctx.closePath();
+  if (glow) { ctx.shadowColor = glow; ctx.shadowBlur = 18; }
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 3; ctx.stroke(); }
+  ctx.restore();
+}
+
+function drawClassic(now) {
+  // пульс фона на бит
+  const beatFrac = ((now / BEAT) % 1 + 1) % 1;
+  const pulse = Math.max(0, 1 - beatFrac * 3);
+  ctx.fillStyle = `rgba(162, 60, 245, ${0.04 + pulse * 0.05})`;
+  ctx.fillRect(0, 0, W, H);
+
+  // разделители полос
+  ctx.strokeStyle = "rgba(255,255,255,0.06)";
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= LANES; i++) {
+    const x = FIELD_X + i * LANE_W;
+    ctx.beginPath(); ctx.moveTo(x, 60); ctx.lineTo(x, H); ctx.stroke();
+  }
+
+  // приёмники
+  for (let i = 0; i < LANES; i++) {
+    const flash = state.receptorFlash[i];
+    drawArrow(laneX(i), RECEPTOR_Y, 54 + flash * 8, LANE_DIRS[i],
+      flash > 0.05 ? LANE_COLORS[i] : null,
+      flash > 0.05 ? "#ffffff" : "rgba(255,255,255,0.35)",
+      flash > 0.05 ? LANE_COLORS[i] : null);
+    state.receptorFlash[i] = Math.max(0, flash - 0.08);
+  }
+
+  // ноты (летят снизу вверх)
+  for (const n of state.notes) {
+    if (n.hit || n.missed) continue;
+    const dt = n.time - now;
+    if (dt > TRAVEL_TIME + 0.1 || dt < -0.25) continue;
+    const y = RECEPTOR_Y + (dt / TRAVEL_TIME) * (H - RECEPTOR_Y + 60);
+    drawArrow(laneX(n.lane), y, 54, LANE_DIRS[n.lane], LANE_COLORS[n.lane], "rgba(0,0,0,0.4)", LANE_COLORS[n.lane]);
+  }
+
+  drawHud(now, FIELD_X, FIELD_W);
+}
+
+// ── Битва: сцена, персонажи, ноты-буквы ─────────────────────
 function drawStage(now) {
   const beatFrac = ((now / BEAT) % 1 + 1) % 1;
   const pulse = Math.max(0, 1 - beatFrac * 3);
@@ -474,7 +603,6 @@ function drawStage(now) {
   }
 }
 
-// ── Персонажи ───────────────────────────────────────────────
 function drawNoob(cx, cy, sing, pulse) {
   // игрок — роблокс-нуб слева
   const s = 1 + pulse * 0.04;
@@ -555,8 +683,7 @@ function drawBot(cx, cy, sing, pulse) {
   ctx.restore();
 }
 
-// ── Отрисовка ───────────────────────────────────────────────
-function drawNote(n, y) {
+function drawLetterNote(n, y) {
   const zone = n.side === "player" ? PZONE : BZONE;
   const x = letterX(zone, n.letter);
   const color = letterColor(n.letter);
@@ -577,9 +704,7 @@ function drawNote(n, y) {
   ctx.textBaseline = "alphabetic";
 }
 
-function draw() {
-  const now = songTime();
-  ctx.clearRect(0, 0, W, H);
+function drawBattle(now) {
   drawStage(now);
 
   const beatFrac = ((now / BEAT) % 1 + 1) % 1;
@@ -603,13 +728,13 @@ function draw() {
     ctx.fillText(label, zone.x + zone.w / 2, RECEPTOR_Y - 14);
   }
 
-  // ноты
+  // ноты-буквы
   for (const n of state.notes) {
     if (n.hit || n.missed) continue;
     const dt = n.time - now;
     if (dt > TRAVEL_TIME + 0.1 || dt < -0.25) continue;
     const y = RECEPTOR_Y + (dt / TRAVEL_TIME) * (H - RECEPTOR_Y - 160);
-    drawNote(n, y);
+    drawLetterNote(n, y);
   }
 
   // частицы
@@ -622,15 +747,18 @@ function draw() {
   ctx.globalAlpha = 1;
   state.fx = state.fx.filter((p) => p.life > 0);
 
-  // здоровье
-  const hbW = W - 32, hbX = 16, hbY = 44;
+  drawHud(now, 16, W - 32);
+}
+
+// ── Общий HUD: здоровье, счёт, комбо, рейтинг ───────────────
+function drawHud(now, hbX, hbW) {
+  const hbY = 44;
   ctx.fillStyle = "rgba(255,255,255,0.12)";
   ctx.beginPath(); ctx.roundRect(hbX, hbY, hbW, 10, 5); ctx.fill();
   const hw = (state.health / 100) * hbW;
   ctx.fillStyle = state.health > 25 ? "#22e77c" : "#ff4b6e";
   ctx.beginPath(); ctx.roundRect(hbX, hbY, Math.max(10, hw), 10, 5); ctx.fill();
 
-  // счёт и рекорд
   ctx.textAlign = "center";
   ctx.fillStyle = "#f2f4ff";
   ctx.font = "800 22px system-ui, sans-serif";
@@ -644,7 +772,7 @@ function draw() {
     ctx.textAlign = "center";
     ctx.font = "800 30px system-ui, sans-serif";
     ctx.fillStyle = "rgba(255,255,255,0.9)";
-    ctx.fillText(state.combo + "×", W / 2, H * 0.42);
+    ctx.fillText(state.combo + "×", W / 2, H * 0.44);
   }
   if (state.rating && now < state.rating.until) {
     const a = Math.min(1, (state.rating.until - now) / 0.35);
@@ -652,9 +780,16 @@ function draw() {
     ctx.textAlign = "center";
     ctx.font = "800 26px system-ui, sans-serif";
     ctx.fillStyle = state.rating.color;
-    ctx.fillText(state.rating.text, W / 2, H * 0.36);
+    ctx.fillText(state.rating.text, W / 2, H * 0.38);
     ctx.globalAlpha = 1;
   }
+}
+
+function draw() {
+  const now = songTime();
+  ctx.clearRect(0, 0, W, H);
+  if (state.mode === "battle") drawBattle(now);
+  else drawClassic(now);
 }
 
 // ── Цикл ────────────────────────────────────────────────────
@@ -665,14 +800,14 @@ function loop() {
 
   for (const n of state.notes) {
     if (n.hit || n.missed) continue;
-    if (n.side === "bot") {
+    if (state.mode === "battle" && n.side === "bot") {
       // бот отыгрывает свои ноты сам
       if (now >= n.time) {
         n.hit = true;
         state.botSingUntil = now + 0.28;
         sparkle(letterX(BZONE, n.letter), RECEPTOR_Y, letterColor(n.letter));
       }
-    } else if (now - n.time > BAD) {
+    } else if (now - n.time > win().bad) {
       n.missed = true;
       state.hits.miss++;
       state.combo = 0;
