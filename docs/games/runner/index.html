@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Roblox Runner</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg1: #12141d;
+    --bg2: #1c2030;
+    --text: #f2f4ff;
+    --muted: #8b92b0;
+    --accent: #00a2ff;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: linear-gradient(180deg, var(--bg2), var(--bg1));
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+  #wrap { position: relative; width: 100%; max-width: 640px; }
+  canvas { display: block; width: 100%; touch-action: manipulation; }
+  #hud {
+    position: absolute;
+    top: 10px; left: 0; right: 0;
+    display: flex;
+    justify-content: space-between;
+    padding: 0 16px;
+    font-weight: 800;
+    font-size: 16px;
+    pointer-events: none;
+  }
+  #hud .best { color: var(--muted); }
+  #overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    background: rgba(10, 12, 20, 0.72);
+    backdrop-filter: blur(4px);
+    text-align: center;
+    padding: 20px;
+  }
+  #overlay.hidden { display: none; }
+  #overlay h1 { font-size: 26px; font-weight: 800; }
+  #overlay p { color: var(--muted); font-size: 14px; max-width: 300px; line-height: 1.5; }
+  #overlay .score-line { font-size: 18px; font-weight: 700; color: var(--accent); }
+  button {
+    margin-top: 8px;
+    font: inherit;
+    font-weight: 800;
+    font-size: 16px;
+    color: #fff;
+    background: linear-gradient(135deg, #00a2ff, #0062ff);
+    border: none;
+    border-radius: 14px;
+    padding: 14px 34px;
+    cursor: pointer;
+    box-shadow: 0 6px 24px rgba(0, 130, 255, 0.4);
+  }
+  button:active { transform: scale(0.96); }
+  .back {
+    position: absolute;
+    top: 8px; left: 50%;
+    transform: translateX(-50%);
+    color: var(--muted);
+    font-size: 12px;
+    text-decoration: none;
+    pointer-events: auto;
+  }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game" width="640" height="360"></canvas>
+  <div id="hud">
+    <span id="score">0</span>
+    <a class="back" href="../">⬅ к играм</a>
+    <span class="best" id="best">🏆 0</span>
+  </div>
+  <div id="overlay">
+    <h1>🏃 Roblox Runner</h1>
+    <p>Тапни или нажми пробел, чтобы прыгать. Перепрыгивай кубики — скорость растёт!</p>
+    <button id="startBtn">Играть</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+const tg = window.Telegram?.WebApp;
+if (tg) { tg.ready(); tg.expand(); }
+
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+const W = canvas.width, H = canvas.height;
+const GROUND_Y = H - 64;
+
+const scoreEl = document.getElementById("score");
+const bestEl = document.getElementById("best");
+const overlay = document.getElementById("overlay");
+const startBtn = document.getElementById("startBtn");
+
+let best = Number(localStorage.getItem("runner_best") || 0);
+bestEl.textContent = "🏆 " + best;
+
+// ── Состояние игры ──────────────────────────────────────────
+const state = {
+  running: false,
+  t: 0,
+  speed: 6,
+  score: 0,
+  obstacles: [],
+  clouds: [],
+  particles: [],
+  nextSpawn: 0,
+};
+
+const player = {
+  x: 90, y: GROUND_Y, w: 42, h: 54,
+  vy: 0, jumping: false,
+  legPhase: 0,
+};
+
+function reset() {
+  state.t = 0;
+  state.speed = 6;
+  state.score = 0;
+  state.obstacles = [];
+  state.particles = [];
+  state.nextSpawn = 40;
+  player.y = GROUND_Y;
+  player.vy = 0;
+  player.jumping = false;
+  if (state.clouds.length === 0) {
+    for (let i = 0; i < 4; i++) {
+      state.clouds.push({ x: Math.random() * W, y: 30 + Math.random() * 90, s: 0.3 + Math.random() * 0.5 });
+    }
+  }
+}
+
+// ── Управление ──────────────────────────────────────────────
+function jump() {
+  if (!state.running) return;
+  if (!player.jumping) {
+    player.vy = -13.5;
+    player.jumping = true;
+    if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred("light");
+  }
+}
+document.addEventListener("keydown", (e) => {
+  if (e.code === "Space" || e.code === "ArrowUp") { e.preventDefault(); jump(); }
+});
+canvas.addEventListener("pointerdown", jump);
+startBtn.addEventListener("click", start);
+
+function start() {
+  reset();
+  overlay.classList.add("hidden");
+  state.running = true;
+  requestAnimationFrame(loop);
+}
+
+// ── Спавн кубиков ───────────────────────────────────────────
+const CUBE_COLORS = ["#e2241d", "#ffb020", "#22e77c", "#a23cf5", "#00a2ff"];
+function spawnObstacle() {
+  const double = Math.random() < Math.min(0.35, state.score / 4000);
+  const size = 34 + Math.random() * 10;
+  const color = CUBE_COLORS[(Math.random() * CUBE_COLORS.length) | 0];
+  state.obstacles.push({ x: W + 20, size, color, stacked: double });
+  state.nextSpawn = 55 + Math.random() * 60 - Math.min(30, state.speed * 2);
+}
+
+// ── Отрисовка ───────────────────────────────────────────────
+function drawBackground() {
+  // небо-градиент рисует CSS, тут — параллакс-облака и сетка-пол
+  ctx.fillStyle = "rgba(255,255,255,0.06)";
+  for (const c of state.clouds) {
+    ctx.beginPath();
+    ctx.ellipse(c.x, c.y, 34, 12, 0, 0, Math.PI * 2);
+    ctx.fill();
+    c.x -= c.s * state.speed * 0.25;
+    if (c.x < -50) { c.x = W + 50; c.y = 30 + Math.random() * 90; }
+  }
+  // пол
+  ctx.fillStyle = "#232840";
+  ctx.fillRect(0, GROUND_Y, W, H - GROUND_Y);
+  ctx.strokeStyle = "rgba(255,255,255,0.10)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, GROUND_Y);
+  ctx.lineTo(W, GROUND_Y);
+  ctx.stroke();
+  // бегущие насечки на полу
+  ctx.strokeStyle = "rgba(255,255,255,0.05)";
+  const off = (state.t * state.speed) % 40;
+  for (let x = -off; x < W; x += 40) {
+    ctx.beginPath();
+    ctx.moveTo(x, GROUND_Y + 12);
+    ctx.lineTo(x + 18, GROUND_Y + 12);
+    ctx.stroke();
+  }
+}
+
+function roundRect(x, y, w, h, r, fill) {
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, r);
+  ctx.fillStyle = fill;
+  ctx.fill();
+}
+
+function drawPlayer() {
+  const { x, w, h } = player;
+  const y = player.y - h;
+  player.legPhase += state.speed * 0.09;
+  const legSwing = player.jumping ? 0 : Math.sin(player.legPhase) * 7;
+
+  // тень
+  ctx.fillStyle = "rgba(0,0,0,0.35)";
+  ctx.beginPath();
+  const airFactor = Math.max(0.35, 1 - (GROUND_Y - player.y) / 140);
+  ctx.ellipse(x + w / 2, GROUND_Y + 8, 24 * airFactor, 6 * airFactor, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // ноги (тёмно-синие, как классический noob)
+  roundRect(x + 4, y + h - 18 + legSwing * 0.4, 14, 18 - legSwing * 0.4, 4, "#2d4fd6");
+  roundRect(x + w - 18, y + h - 18 - legSwing * 0.4, 14, 18 + legSwing * 0.4, 4, "#2d4fd6");
+  // торс (зелёный)
+  roundRect(x, y + 16, w, 24, 6, "#22c55e");
+  // руки (жёлтые)
+  const armSwing = player.jumping ? -6 : Math.sin(player.legPhase) * 5;
+  roundRect(x - 10, y + 18 + armSwing, 10, 20, 4, "#ffd23e");
+  roundRect(x + w, y + 18 - armSwing, 10, 20, 4, "#ffd23e");
+  // голова (жёлтая)
+  roundRect(x + 5, y - 6, w - 10, 26, 8, "#ffd23e");
+  // лицо
+  ctx.fillStyle = "#1a1a1a";
+  ctx.beginPath();
+  ctx.arc(x + 15, y + 5, 2.6, 0, Math.PI * 2);
+  ctx.arc(x + w - 15, y + 5, 2.6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#1a1a1a";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(x + w / 2, y + 9, 7, 0.15 * Math.PI, 0.85 * Math.PI);
+  ctx.stroke();
+}
+
+function drawObstacles() {
+  for (const o of state.obstacles) {
+    const count = o.stacked ? 2 : 1;
+    for (let i = 0; i < count; i++) {
+      const y = GROUND_Y - o.size * (i + 1);
+      // кубик с гранью-подсветкой
+      roundRect(o.x, y, o.size, o.size, 6, o.color);
+      ctx.fillStyle = "rgba(255,255,255,0.25)";
+      ctx.beginPath();
+      ctx.roundRect(o.x, y, o.size, 8, { tl: 6, tr: 6, bl: 0, br: 0 });
+      ctx.fill();
+      ctx.strokeStyle = "rgba(0,0,0,0.25)";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(o.x + 0.5, y + 0.5, o.size - 1, o.size - 1);
+    }
+  }
+}
+
+function drawParticles() {
+  for (const p of state.particles) {
+    ctx.globalAlpha = p.life / p.max;
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x, p.y, p.s, p.s);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ── Логика ──────────────────────────────────────────────────
+function update() {
+  state.t++;
+  state.speed = 6 + Math.min(8, state.score / 600);
+  state.score += state.speed * 0.12;
+
+  // прыжок/гравитация
+  player.vy += 0.72;
+  player.y += player.vy;
+  if (player.y >= GROUND_Y) {
+    player.y = GROUND_Y;
+    player.vy = 0;
+    player.jumping = false;
+  }
+
+  // пыль из-под ног
+  if (!player.jumping && state.t % 5 === 0) {
+    state.particles.push({
+      x: player.x + 6, y: GROUND_Y - 2,
+      vx: -state.speed * 0.4, vy: -Math.random(),
+      s: 3, life: 18, max: 18, color: "#8b92b0",
+    });
+  }
+  for (const p of state.particles) { p.x += p.vx; p.y += p.vy; p.life--; }
+  state.particles = state.particles.filter((p) => p.life > 0);
+
+  // препятствия
+  if (--state.nextSpawn <= 0) spawnObstacle();
+  for (const o of state.obstacles) o.x -= state.speed;
+  state.obstacles = state.obstacles.filter((o) => o.x + o.size > -30);
+
+  // столкновения (щадящий хитбокс)
+  const px = player.x + 6, pw = player.w - 12;
+  const py = player.y - player.h + 6, ph = player.h - 8;
+  for (const o of state.obstacles) {
+    const oh = o.stacked ? o.size * 2 : o.size;
+    const oy = GROUND_Y - oh;
+    if (px < o.x + o.size - 6 && px + pw > o.x + 6 && py + ph > oy + 4) {
+      return gameOver();
+    }
+  }
+
+  scoreEl.textContent = Math.floor(state.score);
+}
+
+function gameOver() {
+  state.running = false;
+  if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred("error");
+  const final = Math.floor(state.score);
+  if (final > best) {
+    best = final;
+    localStorage.setItem("runner_best", best);
+    bestEl.textContent = "🏆 " + best;
+  }
+  overlay.innerHTML = `
+    <h1>💥 Ой!</h1>
+    <div class="score-line">Счёт: ${final} · Рекорд: ${best}</div>
+    <p>${final >= best && final > 0 ? "Новый рекорд! 🎉" : "Кубики коварны. Попробуешь ещё?"}</p>
+    <button id="againBtn">Ещё раз</button>`;
+  overlay.classList.remove("hidden");
+  document.getElementById("againBtn").addEventListener("click", start);
+}
+
+function loop() {
+  if (!state.running) return;
+  update();
+  ctx.clearRect(0, 0, W, H);
+  drawBackground();
+  drawParticles();
+  drawObstacles();
+  drawPlayer();
+  requestAnimationFrame(loop);
+}
+
+// первый кадр-превью за оверлеем
+reset();
+drawBackground();
+drawPlayer();
+</script>
+</body>
+</html>

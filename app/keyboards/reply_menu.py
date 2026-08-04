@@ -15,6 +15,7 @@ class MainMenuButton(StrEnum):
     CHAT = "💬 Общение"
     AI = "🤖 AI"
     ROBLOX = "🎮 Roblox"
+    GAMES = "🕹 Игры"
     FNF = "🎵 FNF Mods"
     NEWS = "📰 Новости"
     PROFILE = "👤 Профиль"
