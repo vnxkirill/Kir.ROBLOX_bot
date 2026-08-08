@@ -300,12 +300,71 @@ function decorate(raw) {
 }
 
 // ── Старт/финиш ─────────────────────────────────────────────
+// Скачиваем трек фоном сразу при открытии страницы (без decode —
+// AudioContext можно создавать только после тапа пользователя).
+const prefetch = {};  // songId -> Promise<{audioData, chart}>
+function prefetchMod(id) {
+  if (prefetch[id]) return prefetch[id];
+  const song = SONGS[id];
+  prefetch[id] = (async () => {
+    const [audioRes, chartRes] = await Promise.all([fetch(song.audio), fetch(song.chart)]);
+    if (!audioRes.ok || !chartRes.ok) throw new Error("fetch failed");
+    // читаем поток по кускам, чтобы показывать проценты
+    const total = Number(audioRes.headers.get("Content-Length")) || 0;
+    const reader = audioRes.body.getReader();
+    const parts = [];
+    let got = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      parts.push(value);
+      got += value.length;
+      if (total) {
+        song.progress = Math.round((got / total) * 100);
+        const bar = document.getElementById("dlbar");
+        if (bar) bar.textContent = `Загрузка ${song.progress}%`;
+      }
+    }
+    const audioData = new Uint8Array(got);
+    let off = 0;
+    for (const p of parts) { audioData.set(p, off); off += p.length; }
+    const chart = await chartRes.json();
+    return { audioData: audioData.buffer, chart };
+  })();
+  prefetch[id].catch(() => { delete prefetch[id]; });  // при ошибке можно повторить
+  return prefetch[id];
+}
+// стартуем скачивание сразу — к нажатию кнопки трек уже на месте
+for (const id in SONGS) if (SONGS[id].audio) prefetchMod(id);
+
+// и сразу декодируем: AudioContext до тапа suspended, но decode работает
+if (!audio) audio = makeAudio();
+for (const id in SONGS) {
+  if (!SONGS[id].audio) continue;
+  prefetch[id]?.then(async ({ audioData, chart }) => {
+    const buffer = await audio.ac.decodeAudioData(audioData.slice(0));
+    modCache[id] = { buffer, chart };
+    SONGS[id].ready = true;
+    markReady(id);
+  }).catch(() => {});
+}
+
+// на кнопке в меню видно, готов ли трек
+const SONG_LABEL = { beat: "🎹 Beat Battle", slide9: "🌀 Slidenotefication 9 (мод)" };
+function songBtn(id) {
+  const tick = SONGS[id].ready ? " ✓" : "";
+  return `<button class="song-btn" data-song="${id}">${SONG_LABEL[id]}${tick}</button>`;
+}
+function markReady(id) {
+  for (const btn of document.querySelectorAll(`.song-btn[data-song="${id}"]`)) {
+    if (!btn.textContent.includes("✓")) btn.textContent = SONG_LABEL[id] + " ✓";
+  }
+}
+
 async function loadMod(id) {
   if (modCache[id]) return modCache[id];
-  const song = SONGS[id];
-  const [audioRes, chartRes] = await Promise.all([fetch(song.audio), fetch(song.chart)]);
-  const [audioData, chart] = await Promise.all([audioRes.arrayBuffer(), chartRes.json()]);
-  const buffer = await audio.ac.decodeAudioData(audioData);
+  const { audioData, chart } = await prefetchMod(id);
+  const buffer = await audio.ac.decodeAudioData(audioData.slice(0));
   modCache[id] = { buffer, chart };
   return modCache[id];
 }
@@ -324,7 +383,8 @@ async function start(songId) {
     audio.scheduledUpTo = 0;
     state.songEnd = SONG_BEATS * BEAT;
   } else {
-    overlay.innerHTML = `<h1>🎧 Загрузка…</h1><p>${song.title}</p>`;
+    overlay.innerHTML = `<h1>🎧 Загрузка…</h1><p>${song.title}</p>
+      <p id="dlbar" style="color:#22e77c;font-weight:800">Загрузка ${song.progress || 0}%</p>`;
     overlay.classList.remove("hidden");
     let mod;
     try {
@@ -367,8 +427,8 @@ function showMenu(subtitle) {
   overlay.innerHTML = `
     <h1>🎤 FNF Beat Battle</h1>
     <p>${subtitle || "Выбери песню:"}</p>
-    <button class="song-btn" data-song="beat">🎹 Beat Battle</button>
-    <button class="song-btn" data-song="slide9">🌀 Slidenotefication 9 (мод)</button>`;
+    ${songBtn("beat")}
+    ${songBtn("slide9")}`;
   overlay.classList.remove("hidden");
 }
 overlay.addEventListener("click", (e) => {
@@ -404,8 +464,7 @@ function finish(won) {
     <p>Точность: ${acc}% · Макс. комбо: ${state.maxCombo}<br>
     Sick ${state.hits.sick} · Good ${state.hits.good} · Bad ${state.hits.bad} · Miss ${state.hits.miss}</p>
     <button id="againBtn" data-song="${currentSong}">Ещё раз</button>
-    <button class="song-btn" data-song="${currentSong === "beat" ? "slide9" : "beat"}">
-      ${currentSong === "beat" ? "🌀 Slidenotefication 9 (мод)" : "🎹 Beat Battle"}</button>`;
+    ${songBtn(currentSong === "beat" ? "slide9" : "beat")}`;
   overlay.classList.remove("hidden");
 }
 
